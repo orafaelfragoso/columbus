@@ -9,7 +9,7 @@ func TestCodeExitMapping(t *testing.T) {
 		CodeInvalidKind:       ExitUsage,
 		CodeNotInitialized:    ExitNotInitialized,
 		CodeIndexMissing:      ExitNotInitialized,
-		CodeIndexLocked:       ExitRuntime,
+		CodeIndexLocked:       ExitTransient,
 		CodeSchemaTooNew:      ExitRuntime,
 		CodeNotFound:          ExitRuntime,
 		CodeStoreError:        ExitRuntime,
@@ -19,6 +19,15 @@ func TestCodeExitMapping(t *testing.T) {
 		if got := code.Exit(); got != want {
 			t.Errorf("%s.Exit() = %d, want %d", code, got, want)
 		}
+	}
+}
+
+func TestTransientExitCodeIsDistinct(t *testing.T) {
+	if ExitTransient == ExitRuntime {
+		t.Fatal("ExitTransient must differ from ExitRuntime so retry logic can branch")
+	}
+	if ExitTransient != 4 {
+		t.Errorf("ExitTransient = %d, want 4", ExitTransient)
 	}
 }
 

@@ -77,6 +77,7 @@ never silently diverge.
 | 1 | runtime error |
 | 2 | usage error |
 | 3 | not initialized / index missing |
+| 4 | transient / retryable (e.g. index writer locked) |
 
 ## Languages (V1)
 

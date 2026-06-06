@@ -25,6 +25,10 @@ const (
 	// ExitNotInitialized indicates a recoverable "not set up" state the
 	// plugin branches on (no config, or index missing).
 	ExitNotInitialized ExitCode = 3
+	// ExitTransient indicates a temporary, retryable failure (e.g. the index
+	// writer lock is held). Distinct from ExitRuntime so a caller's retry
+	// logic can branch on the exit code alone, without parsing the envelope.
+	ExitTransient ExitCode = 4
 )
 
 // Code is a canonical, stable error identifier carried in the JSON error
@@ -51,7 +55,7 @@ var codeExit = map[Code]ExitCode{
 	CodeInvalidKind:       ExitUsage,
 	CodeNotInitialized:    ExitNotInitialized,
 	CodeIndexMissing:      ExitNotInitialized,
-	CodeIndexLocked:       ExitRuntime,
+	CodeIndexLocked:       ExitTransient,
 	CodeSchemaTooNew:      ExitRuntime,
 	CodeNotFound:          ExitRuntime,
 	CodeStoreError:        ExitRuntime,

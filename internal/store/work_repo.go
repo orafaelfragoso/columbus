@@ -80,6 +80,99 @@ func (d *DB) AllEpicIDs() ([]int64, error) {
 	return d.idList(`SELECT id FROM epics ORDER BY id`)
 }
 
+// Task is a full task record with its associations.
+type Task struct {
+	ID        int64
+	EpicID    int64
+	Title     string
+	Body      string
+	Status    string
+	CreatedAt string
+	UpdatedAt string
+	Tags      []string
+}
+
+// TaskBrief is a task summary for list/search output.
+type TaskBrief struct {
+	ID     int64
+	EpicID int64
+	Title  string
+	Status string
+}
+
+// TaskFull fetches a task and its tags by numeric id.
+func (d *DB) TaskFull(id int64) (Task, bool, error) {
+	var ta Task
+	err := d.db.QueryRow(`SELECT id, epic_id, title, body, status, created_at, updated_at FROM tasks WHERE id = ?`, id).
+		Scan(&ta.ID, &ta.EpicID, &ta.Title, &ta.Body, &ta.Status, &ta.CreatedAt, &ta.UpdatedAt)
+	if err != nil {
+		if isNoRows(err) {
+			return Task{}, false, nil
+		}
+		return Task{}, false, storeErr(err)
+	}
+	tags, err := d.pathQuery(`SELECT tag FROM work_tags WHERE owner_type = 'task' AND owner_id = ? ORDER BY tag`, id)
+	if err != nil {
+		return Task{}, false, err
+	}
+	ta.Tags = tags
+	return ta, true, nil
+}
+
+// ListTasks returns task summaries filtered by optional epic id (0 = any),
+// status and tag, ordered by id ascending.
+func (d *DB) ListTasks(epicID int64, status, tag string) ([]TaskBrief, error) {
+	query := `SELECT DISTINCT t.id, t.epic_id, t.title, t.status FROM tasks t`
+	var args []any
+	var where []string
+	if tag != "" {
+		query += ` JOIN work_tags wt ON wt.owner_type = 'task' AND wt.owner_id = t.id`
+		where = append(where, `wt.tag = ?`)
+		args = append(args, tag)
+	}
+	if epicID != 0 {
+		where = append(where, `t.epic_id = ?`)
+		args = append(args, epicID)
+	}
+	if status != "" {
+		where = append(where, `t.status = ?`)
+		args = append(args, status)
+	}
+	if len(where) > 0 {
+		query += ` WHERE ` + strings.Join(where, " AND ")
+	}
+	query += ` ORDER BY t.id`
+
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	defer rows.Close()
+	var out []TaskBrief
+	for rows.Next() {
+		var b TaskBrief
+		if err := rows.Scan(&b.ID, &b.EpicID, &b.Title, &b.Status); err != nil {
+			return nil, storeErr(err)
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// AllTaskIDs returns every task id ascending.
+func (d *DB) AllTaskIDs() ([]int64, error) {
+	return d.idList(`SELECT id FROM tasks ORDER BY id`)
+}
+
+// TaskExists reports whether a task id exists.
+func (d *DB) TaskExists(id int64) (bool, error) {
+	var n int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM tasks WHERE id = ?`, id).Scan(&n); err != nil {
+		return false, storeErr(err)
+	}
+	return n > 0, nil
+}
+
 // EpicExists reports whether an epic id exists.
 func (d *DB) EpicExists(id int64) (bool, error) {
 	var n int

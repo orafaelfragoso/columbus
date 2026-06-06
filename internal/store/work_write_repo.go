@@ -175,6 +175,17 @@ func (t *Tx) RemoveWorkTag(ownerType string, ownerID int64, tag string) error {
 	return storeErr(err)
 }
 
+// ReindexWorkFTS rebuilds an owner's FTS row from its current title/body/tags
+// and concatenated event comments.
+func (t *Tx) ReindexWorkFTS(ownerType string, ownerID int64, title, body, tags, comments string) error {
+	if err := t.DeleteWorkFTS(ownerType, ownerID); err != nil {
+		return err
+	}
+	_, err := t.tx.Exec(`INSERT INTO work_fts (title, body, tags, comments, owner_type, owner_id)
+		VALUES (?, ?, ?, ?, ?, ?)`, title, body, tags, comments, ownerType, ownerID)
+	return storeErr(err)
+}
+
 // DeleteWorkFTS removes an owner's FTS row.
 func (t *Tx) DeleteWorkFTS(ownerType string, ownerID int64) error {
 	_, err := t.tx.Exec(`DELETE FROM work_fts WHERE owner_type = ? AND owner_id = ?`, ownerType, ownerID)

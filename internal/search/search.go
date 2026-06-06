@@ -26,6 +26,8 @@ const (
 	KindAll Kind = iota
 	KindCode
 	KindMemory
+	KindEpic
+	KindTask
 )
 
 // ParseKind maps a flag value to a Kind.
@@ -37,8 +39,12 @@ func ParseKind(s string) (Kind, error) {
 		return KindCode, nil
 	case "memory":
 		return KindMemory, nil
+	case "epic":
+		return KindEpic, nil
+	case "task":
+		return KindTask, nil
 	default:
-		return KindAll, contract.Errorf(contract.CodeUsage, "unknown --kind %q (want code|memory|all)", s)
+		return KindAll, contract.Errorf(contract.CodeUsage, "unknown --kind %q (want code|memory|epic|task|all)", s)
 	}
 }
 
@@ -48,6 +54,10 @@ func (k Kind) String() string {
 		return "code"
 	case KindMemory:
 		return "memory"
+	case KindEpic:
+		return "epic"
+	case KindTask:
+		return "task"
 	default:
 		return "all"
 	}
@@ -156,6 +166,14 @@ func (e *Engine) Search(q Query) (SearchResult, error) {
 			return SearchResult{}, err
 		}
 		res.Hits = append(res.Hits, memHits...)
+	}
+
+	if q.Kind == KindAll || q.Kind == KindEpic || q.Kind == KindTask {
+		workHits, err := e.workHits(match, q.Kind)
+		if err != nil {
+			return SearchResult{}, err
+		}
+		res.Hits = append(res.Hits, workHits...)
 	}
 
 	sortHits(res.Hits)
@@ -361,6 +379,33 @@ func (e *Engine) memoryHits(match string) ([]Hit, error) {
 		})
 	}
 	return hits, nil
+}
+
+// workHits returns ranked epic/task results from the work FTS index, optionally
+// narrowed to a single noun.
+func (e *Engine) workHits(match string, kind Kind) ([]Hit, error) {
+	owners, err := e.DB.SearchWorkFTS(match, candidateCap)
+	if err != nil {
+		return nil, err
+	}
+	var hits []Hit
+	for _, o := range owners {
+		if kind == KindEpic && o.OwnerType != "epic" {
+			continue
+		}
+		if kind == KindTask && o.OwnerType != "task" {
+			continue
+		}
+		hits = append(hits, Hit{
+			Grain: o.OwnerType, ID: workID(o.OwnerType, o.OwnerID), Name: o.Title, SymbolKind: o.Status,
+			Score: 0.6, Why: o.OwnerType + " match", RiskLevel: "low",
+		})
+	}
+	return hits, nil
+}
+
+func workID(ownerType string, id int64) string {
+	return fmt.Sprintf("%s_%03d", ownerType, id)
 }
 
 // resolveLive fills in current line ranges and snippets by re-parsing the

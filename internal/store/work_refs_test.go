@@ -105,3 +105,29 @@ func TestHasFilesUnderDir(t *testing.T) {
 		t.Fatal("HasFilesUnderDir(cmd) should be false")
 	}
 }
+
+func TestWorkFTSRoundTrip(t *testing.T) {
+	db := openTemp(t)
+	epicID := seedEpic(t, db, "Ship search")
+	if err := db.WithTx(func(tx *Tx) error {
+		return tx.ReindexWorkFTS("epic", epicID, "Ship search", "body text", "fts", "a useful comment")
+	}); err != nil {
+		t.Fatalf("ReindexWorkFTS: %v", err)
+	}
+
+	owners, err := db.SearchWorkFTS(`"search"*`, 10)
+	if err != nil || len(owners) != 1 || owners[0].OwnerType != "epic" || owners[0].OwnerID != epicID {
+		t.Fatalf("SearchWorkFTS(title) = %+v, %v", owners, err)
+	}
+	// Comments feed the index too.
+	if owners, _ := db.SearchWorkFTS(`"comment"*`, 10); len(owners) != 1 {
+		t.Fatalf("SearchWorkFTS(comment) = %+v, want 1", owners)
+	}
+	// Re-deleting via reindex removes stale terms.
+	if err := db.WithTx(func(tx *Tx) error { return tx.DeleteWorkFTS("epic", epicID) }); err != nil {
+		t.Fatalf("DeleteWorkFTS: %v", err)
+	}
+	if owners, _ := db.SearchWorkFTS(`"search"*`, 10); len(owners) != 0 {
+		t.Fatalf("after delete = %+v, want empty", owners)
+	}
+}

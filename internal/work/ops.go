@@ -425,7 +425,45 @@ func applyTagChanges(tx *store.Tx, ownerType string, id int64, add, remove []str
 	return nil
 }
 
+// reindexFTS rebuilds an owner's FTS row from its current title/body/tags and
+// the comments in its event log. Reads happen outside the write tx (the writer
+// holds the single connection).
+func (m *Manager) reindexFTS(ownerType string, id int64) error {
+	var title, body string
+	var tags []string
+	switch ownerType {
+	case "epic":
+		full, ok, err := m.DB.EpicFull(id)
+		if err != nil || !ok {
+			return err
+		}
+		title, body, tags = full.Title, full.Body, full.Tags
+	default:
+		full, ok, err := m.DB.TaskFull(id)
+		if err != nil || !ok {
+			return err
+		}
+		title, body, tags = full.Title, full.Body, full.Tags
+	}
+	events, err := m.DB.WorkEvents(ownerType, id)
+	if err != nil {
+		return err
+	}
+	var comments []string
+	for _, e := range events {
+		if e.Comment != "" {
+			comments = append(comments, e.Comment)
+		}
+	}
+	return m.DB.WithTx(func(tx *store.Tx) error {
+		return tx.ReindexWorkFTS(ownerType, id, title, body, strings.Join(tags, " "), strings.Join(comments, " "))
+	})
+}
+
 func (m *Manager) loadEpic(id int64) (EpicResult, error) {
+	if err := m.reindexFTS("epic", id); err != nil {
+		return EpicResult{}, err
+	}
 	full, ok, err := m.DB.EpicFull(id)
 	if err != nil {
 		return EpicResult{}, err
@@ -437,6 +475,9 @@ func (m *Manager) loadEpic(id int64) (EpicResult, error) {
 }
 
 func (m *Manager) loadTask(id int64) (TaskResult, error) {
+	if err := m.reindexFTS("task", id); err != nil {
+		return TaskResult{}, err
+	}
 	full, ok, err := m.DB.TaskFull(id)
 	if err != nil {
 		return TaskResult{}, err

@@ -60,7 +60,7 @@ func newSearchCmd(env *Env) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&kindFlag, "kind", "all", "what to search: code|memory|all")
+	f.StringVar(&kindFlag, "kind", "all", "what to search: code|memory|epic|task|all")
 	f.IntVar(&limit, "limit", 20, "maximum number of results")
 	f.IntVar(&contextLines, "context-lines", 3, "lines of context around matched ranges")
 	f.BoolVar(&graph, "graph", false, "include 1-hop graph neighbors (imports/imported-by)")

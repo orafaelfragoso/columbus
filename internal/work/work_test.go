@@ -207,6 +207,21 @@ func TestEpicListFilterByStatus(t *testing.T) {
 	}
 }
 
+func TestEpicSearchableByTitleAndComment(t *testing.T) {
+	m := newManager(t)
+	e, _ := m.EpicAdd(EpicAddParams{Title: "Ship search", Tags: []string{"infra"}})
+	if _, err := m.EpicComment(e.ID, "investigate the tokenizer"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, q := range []string{`"search"*`, `"tokenizer"*`, `"infra"*`} {
+		owners, err := m.DB.SearchWorkFTS(q, 10)
+		if err != nil || len(owners) != 1 || owners[0].OwnerType != "epic" {
+			t.Fatalf("SearchWorkFTS(%s) = %+v, %v", q, owners, err)
+		}
+	}
+}
+
 func TestParseIDs(t *testing.T) {
 	if _, err := ParseEpicID("epic_007"); err != nil {
 		t.Fatalf("ParseEpicID: %v", err)

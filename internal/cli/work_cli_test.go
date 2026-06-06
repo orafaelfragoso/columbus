@@ -3,7 +3,9 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -159,6 +161,35 @@ func TestShowEpicE2E(t *testing.T) {
 	}
 	if len(v.Events) != 2 {
 		t.Fatalf("events = %+v, want 2 (initial todo + in_progress)", v.Events)
+	}
+}
+
+func TestSearchKindEpicE2E(t *testing.T) {
+	work, data := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "svc.go"), []byte("package svc\n\nfunc New() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	initProject(t, work, data)
+	if _, _, code := runProj(t, work, data, "index"); code != 0 {
+		t.Fatalf("index exit = %d", code)
+	}
+	runProj(t, work, data, "epic", "add", "--title", "Telemetry pipeline")
+
+	out, _, code := runProj(t, work, data, "search", "Telemetry", "--kind", "epic", "--json")
+	if code != 0 {
+		t.Fatalf("search exit = %d", code)
+	}
+	var res struct {
+		Hits []struct {
+			Grain string `json:"grain"`
+			ID    string `json:"id"`
+		} `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("not json: %v\n%s", err, out)
+	}
+	if len(res.Hits) != 1 || res.Hits[0].Grain != "epic" || res.Hits[0].ID != "epic_001" {
+		t.Fatalf("hits = %+v", res.Hits)
 	}
 }
 

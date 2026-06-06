@@ -24,7 +24,8 @@ type MemoryRef struct {
 
 // Hit is a single ranked search result.
 type Hit struct {
-	Grain      string      `json:"grain"` // "symbol" | "file" | "memory"
+	Grain      string      `json:"grain"` // "symbol" | "file" | "memory" | "epic" | "task"
+	ID         string      `json:"id,omitempty"`
 	Name       string      `json:"name"`
 	SymbolKind string      `json:"symbol_kind,omitempty"`
 	Container  string      `json:"container,omitempty"`

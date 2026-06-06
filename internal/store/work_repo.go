@@ -104,6 +104,29 @@ func (d *DB) WorkForTarget(targetType, targetRef string) ([]WorkOwner, error) {
 	return out, rows.Err()
 }
 
+// SearchWorkFTS returns the epics/tasks matching the FTS query, best first.
+func (d *DB) SearchWorkFTS(match string, limit int) ([]WorkOwner, error) {
+	rows, err := d.db.Query(`SELECT f.owner_type, f.owner_id,
+			COALESCE(e.title, t.title, ''), COALESCE(e.status, t.status, '')
+		FROM work_fts f
+		LEFT JOIN epics e ON f.owner_type = 'epic' AND e.id = f.owner_id
+		LEFT JOIN tasks t ON f.owner_type = 'task' AND t.id = f.owner_id
+		WHERE work_fts MATCH ? ORDER BY bm25(work_fts) LIMIT ?`, match, limit)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	defer rows.Close()
+	var out []WorkOwner
+	for rows.Next() {
+		var o WorkOwner
+		if err := rows.Scan(&o.OwnerType, &o.OwnerID, &o.Title, &o.Status); err != nil {
+			return nil, storeErr(err)
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
 // HasFilesUnderDir reports whether at least one indexed file lives under the
 // given directory prefix (whole-segment match; a trailing slash is tolerated).
 func (d *DB) HasFilesUnderDir(dir string) (bool, error) {

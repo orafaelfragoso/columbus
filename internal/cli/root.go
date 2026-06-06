@@ -54,6 +54,7 @@ func newRootCmd(env *Env) *cobra.Command {
 	root.Flags().BoolVar(&pf.version, "version", false, "print version information")
 
 	root.AddCommand(newVersionCmd(env))
+	root.AddCommand(newInitCmd(env))
 	root.AddCommand(newSelftestCmd(env))
 
 	return root

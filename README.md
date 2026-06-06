@@ -49,6 +49,8 @@ columbus search "parse config"      # ranked, LLM-ready results
 columbus search NewServer --graph   # include 1-hop imports/imported-by
 columbus show symbol Engine --in internal/search
 columbus show file internal/store/store.go
+columbus show graph --json          # whole dependency graph as {nodes, edges}
+columbus show graph --role impl --in internal/store   # narrow + induce subgraph
 columbus doctor                     # environment + project health
 ```
 

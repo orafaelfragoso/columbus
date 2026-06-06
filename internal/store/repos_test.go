@@ -122,6 +122,20 @@ func TestGraphRoundTrip(t *testing.T) {
 	if err != nil || count != 1 {
 		t.Fatalf("ImportedByCount = %d, %v", count, err)
 	}
+
+	edges, err := db.AllDepEdges()
+	if err != nil || len(edges) != 1 || edges[0].From != "a_test.go" || edges[0].To != "a.go" {
+		t.Fatalf("AllDepEdges = %v, %v", edges, err)
+	}
+	links, err := db.AllTestLinks()
+	if err != nil || len(links) != 1 || links[0].From != "a.go" || links[0].To != "a_test.go" {
+		t.Fatalf("AllTestLinks = %v, %v", links, err)
+	}
+	// a.go imports "./b" which never resolved to an indexed file.
+	unresolved, err := db.UnresolvedImports()
+	if err != nil || len(unresolved) != 1 || unresolved[0].Path != "a.go" || unresolved[0].Specifier != "./b" {
+		t.Fatalf("UnresolvedImports = %v, %v", unresolved, err)
+	}
 }
 
 func TestDeleteAndClearIndex(t *testing.T) {

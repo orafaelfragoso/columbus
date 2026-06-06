@@ -15,7 +15,28 @@ func newShowCmd(env *Env) *cobra.Command {
 		Args:  cobra.NoArgs,
 	}
 	cmd.AddCommand(newShowSymbolCmd(env), newShowFileCmd(env), newShowMemoryCmd(env),
-		newShowEpicCmd(env), newShowTaskCmd(env))
+		newShowEpicCmd(env), newShowTaskCmd(env), newShowGraphCmd(env))
+	return cmd
+}
+
+func newShowGraphCmd(env *Env) *cobra.Command {
+	var in, role, lang string
+	var max int
+	cmd := &cobra.Command{
+		Use:   "graph",
+		Short: "Project the indexed file dependency graph (nodes + edges)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withShower(env, "show.graph", func(s *show.Shower) (render.Payload, error) {
+				return s.Graph(show.GraphOptions{In: in, Role: role, Lang: lang, Max: max})
+			})
+		},
+	}
+	f := cmd.Flags()
+	f.StringVar(&in, "in", "", "keep files whose path contains this substring")
+	f.StringVar(&role, "role", "", "keep files with this role (impl|test|...)")
+	f.StringVar(&lang, "lang", "", "keep files with this language")
+	f.IntVar(&max, "max", 0, "cap the number of file nodes (0 = default 200)")
 	return cmd
 }
 

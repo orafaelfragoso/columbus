@@ -60,6 +60,8 @@ func newRootCmd(env *Env) *cobra.Command {
 	root.AddCommand(newSearchCmd(env))
 	root.AddCommand(newShowCmd(env))
 	root.AddCommand(newMemoryCmd(env))
+	root.AddCommand(newEpicCmd(env))
+	root.AddCommand(newTaskCmd(env))
 	root.AddCommand(newSelftestCmd(env))
 
 	return root

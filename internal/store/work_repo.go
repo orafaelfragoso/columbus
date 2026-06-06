@@ -173,6 +173,34 @@ func (d *DB) TaskExists(id int64) (bool, error) {
 	return n > 0, nil
 }
 
+// WorkEvent is one entry in an epic's or task's append-only event log. An empty
+// NewStatus means a comment-only note; an empty Comment means a status-only
+// change.
+type WorkEvent struct {
+	NewStatus string
+	Comment   string
+	CreatedAt string
+}
+
+// WorkEvents returns an owner's event log in chronological (id ascending) order.
+func (d *DB) WorkEvents(ownerType string, ownerID int64) ([]WorkEvent, error) {
+	rows, err := d.db.Query(`SELECT COALESCE(new_status, ''), COALESCE(comment, ''), created_at
+		FROM work_events WHERE owner_type = ? AND owner_id = ? ORDER BY id`, ownerType, ownerID)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	defer rows.Close()
+	var out []WorkEvent
+	for rows.Next() {
+		var e WorkEvent
+		if err := rows.Scan(&e.NewStatus, &e.Comment, &e.CreatedAt); err != nil {
+			return nil, storeErr(err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // EpicExists reports whether an epic id exists.
 func (d *DB) EpicExists(id int64) (bool, error) {
 	var n int

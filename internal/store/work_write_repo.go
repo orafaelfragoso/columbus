@@ -126,9 +126,37 @@ func (t *Tx) deleteWorkAssociations(ownerType string, ownerID int64) error {
 	return t.DeleteWorkFTS(ownerType, ownerID)
 }
 
+// AppendWorkEvent writes one append-only event. An empty newStatus or comment
+// is stored as NULL (distinguishing status-only changes from comment-only
+// notes). The caller guarantees at least one is non-empty.
+func (t *Tx) AppendWorkEvent(ownerType string, ownerID int64, newStatus, comment, createdAt string) error {
+	_, err := t.tx.Exec(`INSERT INTO work_events (owner_type, owner_id, new_status, comment, created_at)
+		VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), ?)`, ownerType, ownerID, newStatus, comment, createdAt)
+	return storeErr(err)
+}
+
+// SetEpicStatus updates the denormalized current status of an epic.
+func (t *Tx) SetEpicStatus(id int64, status, updatedAt string) error {
+	_, err := t.tx.Exec(`UPDATE epics SET status = ?, updated_at = ? WHERE id = ?`, status, updatedAt, id)
+	return storeErr(err)
+}
+
+// SetTaskStatus updates the denormalized current status of a task.
+func (t *Tx) SetTaskStatus(id int64, status, updatedAt string) error {
+	_, err := t.tx.Exec(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`, status, updatedAt, id)
+	return storeErr(err)
+}
+
 // AddWorkTag adds a tag to an epic or task (idempotent).
 func (t *Tx) AddWorkTag(ownerType string, ownerID int64, tag string) error {
 	_, err := t.tx.Exec(`INSERT OR IGNORE INTO work_tags (owner_type, owner_id, tag) VALUES (?, ?, ?)`,
+		ownerType, ownerID, tag)
+	return storeErr(err)
+}
+
+// RemoveWorkTag removes a tag from an epic or task.
+func (t *Tx) RemoveWorkTag(ownerType string, ownerID int64, tag string) error {
+	_, err := t.tx.Exec(`DELETE FROM work_tags WHERE owner_type = ? AND owner_id = ? AND tag = ?`,
 		ownerType, ownerID, tag)
 	return storeErr(err)
 }

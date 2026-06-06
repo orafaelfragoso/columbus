@@ -10,6 +10,12 @@ import (
 	"github.com/rafaelfragoso/columbus/internal/store"
 )
 
+// Ref is a rendered epic/task reference.
+type Ref struct {
+	TargetType string `json:"target_type"`
+	TargetRef  string `json:"target_ref"`
+}
+
 // EpicResult is the typed result of an epic mutation (a single record echo).
 type EpicResult struct {
 	ID        string   `json:"id"`
@@ -17,6 +23,7 @@ type EpicResult struct {
 	Body      string   `json:"body,omitempty"`
 	Status    string   `json:"status"`
 	Tags      []string `json:"tags,omitempty"`
+	Refs      []Ref    `json:"refs,omitempty"`
 	CreatedAt string   `json:"created_at,omitempty"`
 	UpdatedAt string   `json:"updated_at,omitempty"`
 	Warnings  []string `json:"warnings,omitempty"`
@@ -31,6 +38,9 @@ func (r EpicResult) RenderText(w io.Writer, _ render.Options) error {
 	}
 	if len(r.Tags) > 0 {
 		fmt.Fprintf(w, "tags: %s\n", strings.Join(r.Tags, ", "))
+	}
+	for _, ref := range r.Refs {
+		fmt.Fprintf(w, "ref: %s:%s\n", ref.TargetType, ref.TargetRef)
 	}
 	for _, warn := range r.Warnings {
 		fmt.Fprintf(w, "warning: %s\n", warn)
@@ -51,6 +61,7 @@ type TaskResult struct {
 	Body      string   `json:"body,omitempty"`
 	Status    string   `json:"status"`
 	Tags      []string `json:"tags,omitempty"`
+	Refs      []Ref    `json:"refs,omitempty"`
 	CreatedAt string   `json:"created_at,omitempty"`
 	UpdatedAt string   `json:"updated_at,omitempty"`
 	Warnings  []string `json:"warnings,omitempty"`
@@ -65,6 +76,9 @@ func (r TaskResult) RenderText(w io.Writer, _ render.Options) error {
 	}
 	if len(r.Tags) > 0 {
 		fmt.Fprintf(w, "tags: %s\n", strings.Join(r.Tags, ", "))
+	}
+	for _, ref := range r.Refs {
+		fmt.Fprintf(w, "ref: %s:%s\n", ref.TargetType, ref.TargetRef)
 	}
 	for _, warn := range r.Warnings {
 		fmt.Fprintf(w, "warning: %s\n", warn)
@@ -163,6 +177,69 @@ func (r TaskListResult) RenderLLM(w io.Writer, _ render.Options) error {
 	return nil
 }
 
+// RefStatus is one reference's drift outcome.
+type RefStatus struct {
+	TargetType string `json:"target_type"`
+	TargetRef  string `json:"target_ref"`
+	Resolved   bool   `json:"resolved"`
+}
+
+// WorkValidation is the drift report for one epic or task.
+type WorkValidation struct {
+	ID       string      `json:"id"`
+	Title    string      `json:"title"`
+	Status   string      `json:"status"`
+	Refs     []RefStatus `json:"refs,omitempty"`
+	Warnings []string    `json:"warnings,omitempty"`
+}
+
+// ValidateResult is the typed result of epic/task validate. The command field
+// is set by the caller so the json envelope names the right noun.
+type ValidateResult struct {
+	command    string
+	Total      int              `json:"total"`
+	Unresolved int              `json:"unresolved"`
+	Healthy    bool             `json:"healthy"`
+	Entities   []WorkValidation `json:"entities"`
+}
+
+func (r ValidateResult) CommandName() string { return r.command }
+
+func (r *ValidateResult) add(v WorkValidation) {
+	for _, ref := range v.Refs {
+		if !ref.Resolved {
+			r.Unresolved++
+		}
+	}
+	r.Entities = append(r.Entities, v)
+}
+
+func (r *ValidateResult) finalize() {
+	r.Total = len(r.Entities)
+	r.Healthy = r.Unresolved == 0
+}
+
+func (r ValidateResult) RenderText(w io.Writer, _ render.Options) error {
+	for _, e := range r.Entities {
+		marker := "ok"
+		if len(e.Warnings) > 0 {
+			marker = "drift"
+		}
+		fmt.Fprintf(w, "%s [%s] %s — %s\n", e.ID, e.Status, e.Title, marker)
+		for _, warn := range e.Warnings {
+			fmt.Fprintf(w, "    %s\n", warn)
+		}
+	}
+	fmt.Fprintf(w, "\n%d entities; %d with unresolved refs\n", r.Total, r.Unresolved)
+	return nil
+}
+
+func (r ValidateResult) RenderLLM(w io.Writer, _ render.Options) error {
+	fmt.Fprintf(w, "# Validation\n\n- total: %d\n- unresolved: %d\n- healthy: %t\n",
+		r.Total, r.Unresolved, r.Healthy)
+	return nil
+}
+
 func renderCounts(w io.Writer, counts map[string]int) {
 	if len(counts) == 0 {
 		return
@@ -182,13 +259,24 @@ func renderCounts(w io.Writer, counts map[string]int) {
 func epicResultFrom(e store.Epic) EpicResult {
 	return EpicResult{
 		ID: FormatEpicID(e.ID), Title: e.Title, Body: e.Body, Status: e.Status,
-		Tags: e.Tags, CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt,
+		Tags: e.Tags, Refs: refsFrom(e.Refs), CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt,
 	}
 }
 
 func taskResultFrom(ta store.Task) TaskResult {
 	return TaskResult{
 		ID: FormatTaskID(ta.ID), Epic: FormatEpicID(ta.EpicID), Title: ta.Title, Body: ta.Body,
-		Status: ta.Status, Tags: ta.Tags, CreatedAt: ta.CreatedAt, UpdatedAt: ta.UpdatedAt,
+		Status: ta.Status, Tags: ta.Tags, Refs: refsFrom(ta.Refs), CreatedAt: ta.CreatedAt, UpdatedAt: ta.UpdatedAt,
 	}
+}
+
+func refsFrom(in []store.WorkRef) []Ref {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]Ref, len(in))
+	for i, r := range in {
+		out[i] = Ref{TargetType: r.TargetType, TargetRef: r.TargetRef}
+	}
+	return out
 }

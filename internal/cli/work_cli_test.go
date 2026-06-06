@@ -97,6 +97,36 @@ func TestEpicDeleteRequiresForceCLI(t *testing.T) {
 	}
 }
 
+func TestEpicRefAndValidateCLI(t *testing.T) {
+	work, data := t.TempDir(), t.TempDir()
+	initProject(t, work, data)
+	runProj(t, work, data, "epic", "add", "--title", "x")
+
+	// A ref to a non-indexed file is stored but reported as drift.
+	out, _, code := runProj(t, work, data, "epic", "ref", "epic_001", "--file", "ghost.go", "--json")
+	if code != 0 {
+		t.Fatalf("epic ref exit = %d", code)
+	}
+	if !contains(out, "does not resolve") {
+		t.Fatalf("expected drift warning in %q", out)
+	}
+
+	out, _, code = runProj(t, work, data, "epic", "validate", "--json")
+	if code != 0 {
+		t.Fatalf("validate exit = %d", code)
+	}
+	var v struct {
+		Unresolved int  `json:"unresolved"`
+		Healthy    bool `json:"healthy"`
+	}
+	json.Unmarshal([]byte(out), &v)
+	if v.Unresolved != 1 || v.Healthy {
+		t.Fatalf("validate = %+v", v)
+	}
+}
+
+func contains(s, sub string) bool { return bytes.Contains([]byte(s), []byte(sub)) }
+
 func TestStatusRejectsUnknownCLI(t *testing.T) {
 	work, data := t.TempDir(), t.TempDir()
 	initProject(t, work, data)

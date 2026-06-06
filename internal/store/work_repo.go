@@ -2,6 +2,13 @@ package store
 
 import "strings"
 
+// WorkRef is a drift-checked reference from an epic/task to a file, dir, memory
+// or symbol.
+type WorkRef struct {
+	TargetType string
+	TargetRef  string
+}
+
 // Epic is a full epic record with its associations.
 type Epic struct {
 	ID        int64
@@ -11,6 +18,7 @@ type Epic struct {
 	CreatedAt string
 	UpdatedAt string
 	Tags      []string
+	Refs      []WorkRef
 }
 
 // EpicBrief is an epic summary for list/search output.
@@ -36,7 +44,43 @@ func (d *DB) EpicFull(id int64) (Epic, bool, error) {
 		return Epic{}, false, err
 	}
 	e.Tags = tags
+	refs, err := d.workRefs("epic", id)
+	if err != nil {
+		return Epic{}, false, err
+	}
+	e.Refs = refs
 	return e, true, nil
+}
+
+// workRefs returns an owner's references ordered deterministically.
+func (d *DB) workRefs(ownerType string, ownerID int64) ([]WorkRef, error) {
+	rows, err := d.db.Query(`SELECT target_type, target_ref FROM work_refs
+		WHERE owner_type = ? AND owner_id = ? ORDER BY target_type, target_ref`, ownerType, ownerID)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	defer rows.Close()
+	var out []WorkRef
+	for rows.Next() {
+		var r WorkRef
+		if err := rows.Scan(&r.TargetType, &r.TargetRef); err != nil {
+			return nil, storeErr(err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// HasFilesUnderDir reports whether at least one indexed file lives under the
+// given directory prefix (whole-segment match; a trailing slash is tolerated).
+func (d *DB) HasFilesUnderDir(dir string) (bool, error) {
+	prefix := strings.TrimSuffix(dir, "/")
+	var n int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM files WHERE path = ? OR path LIKE ? || '/%'`,
+		prefix, prefix).Scan(&n); err != nil {
+		return false, storeErr(err)
+	}
+	return n > 0, nil
 }
 
 // ListEpics returns epic summaries filtered by optional status and tag,
@@ -90,6 +134,7 @@ type Task struct {
 	CreatedAt string
 	UpdatedAt string
 	Tags      []string
+	Refs      []WorkRef
 }
 
 // TaskBrief is a task summary for list/search output.
@@ -116,6 +161,11 @@ func (d *DB) TaskFull(id int64) (Task, bool, error) {
 		return Task{}, false, err
 	}
 	ta.Tags = tags
+	refs, err := d.workRefs("task", id)
+	if err != nil {
+		return Task{}, false, err
+	}
+	ta.Refs = refs
 	return ta, true, nil
 }
 

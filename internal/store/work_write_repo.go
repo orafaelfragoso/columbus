@@ -154,6 +154,20 @@ func (t *Tx) AddWorkTag(ownerType string, ownerID int64, tag string) error {
 	return storeErr(err)
 }
 
+// AddWorkRef adds a drift-checked reference to an epic or task (idempotent).
+func (t *Tx) AddWorkRef(ownerType string, ownerID int64, targetType, targetRef string) error {
+	_, err := t.tx.Exec(`INSERT OR IGNORE INTO work_refs (owner_type, owner_id, target_type, target_ref)
+		VALUES (?, ?, ?, ?)`, ownerType, ownerID, targetType, targetRef)
+	return storeErr(err)
+}
+
+// RemoveWorkRef removes a reference from an epic or task.
+func (t *Tx) RemoveWorkRef(ownerType string, ownerID int64, targetType, targetRef string) error {
+	_, err := t.tx.Exec(`DELETE FROM work_refs WHERE owner_type = ? AND owner_id = ? AND target_type = ? AND target_ref = ?`,
+		ownerType, ownerID, targetType, targetRef)
+	return storeErr(err)
+}
+
 // RemoveWorkTag removes a tag from an epic or task.
 func (t *Tx) RemoveWorkTag(ownerType string, ownerID int64, tag string) error {
 	_, err := t.tx.Exec(`DELETE FROM work_tags WHERE owner_type = ? AND owner_id = ? AND tag = ?`,

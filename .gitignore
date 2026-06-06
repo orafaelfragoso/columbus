@@ -1,0 +1,17 @@
+# Build artifacts
+/dist/
+/columbus
+*.test
+
+# Local data / coverage
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+coverage.out
+coverage.html
+
+# Columbus local config (also git-excluded by `init`, belt-and-suspenders here)
+.columbus.json
+
+# OS noise
+.DS_Store

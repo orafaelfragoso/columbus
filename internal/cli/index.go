@@ -22,7 +22,7 @@ func newIndexCmd(env *Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer proj.DB.Close()
+			defer proj.Close()
 
 			reg, err := extract.NewRegistry()
 			if err != nil {
@@ -38,8 +38,12 @@ func newIndexCmd(env *Env) *cobra.Command {
 			}
 			res, err := ix.Run(mode)
 			if err != nil {
+				proj.Logger.Info("index failed", "mode", mode.String(), "error", err.Error())
 				return err
 			}
+			proj.Logger.Info("index",
+				"mode", res.Mode, "indexed", res.Indexed, "unchanged", res.Unchanged,
+				"deleted", res.Deleted, "symbols", res.Symbols, "total_files", res.TotalFiles)
 			res.Warnings = append(res.Warnings, proj.Warnings...)
 			return renderResult(env, res)
 		},

@@ -2,8 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -14,6 +16,9 @@ import (
 	"github.com/rafaelfragoso/columbus/internal/memory"
 	"github.com/rafaelfragoso/columbus/internal/render"
 )
+
+// cmdContext is the (background) context used for slog.Logger.Log calls.
+var cmdContext = context.Background()
 
 // exportConfirm is a small payload confirming a file export.
 type exportConfirm struct {
@@ -50,18 +55,21 @@ func newMemoryCmd(env *Env) *cobra.Command {
 	return cmd
 }
 
-// withManager opens the project and invokes fn with a memory Manager.
-func withManager(env *Env, fn func(*memory.Manager) (render.Payload, error)) error {
+// withManager opens the project and invokes fn with a memory Manager, logging
+// the outcome at the given level (mutations: info; reads: debug).
+func withManager(env *Env, cmdName string, level slog.Level, fn func(*memory.Manager) (render.Payload, error)) error {
 	proj, err := env.openProject()
 	if err != nil {
 		return err
 	}
-	defer proj.DB.Close()
+	defer proj.Close()
 	mgr := &memory.Manager{DB: proj.DB, Clock: env.Clock, WorkDir: env.WorkDir}
 	payload, err := fn(mgr)
 	if err != nil {
+		proj.Logger.Info(cmdName+" failed", "error", err.Error())
 		return err
 	}
+	proj.Logger.Log(cmdContext, level, cmdName)
 	return renderResult(env, payload)
 }
 
@@ -105,7 +113,7 @@ func newMemoryAddCmd(env *Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return withManager(env, func(m *memory.Manager) (render.Payload, error) {
+			return withManager(env, "memory.add", slog.LevelInfo, func(m *memory.Manager) (render.Payload, error) {
 				return m.Add(memory.AddParams{Kind: kind, Title: title, Body: body, Evidence: ev, Links: lk, Tags: tags})
 			})
 		},
@@ -151,7 +159,7 @@ func newMemoryEditCmd(env *Env) *cobra.Command {
 			if p.RemoveLinks, err = parseLinks(removeLinks); err != nil {
 				return err
 			}
-			return withManager(env, func(m *memory.Manager) (render.Payload, error) {
+			return withManager(env, "memory.edit", slog.LevelInfo, func(m *memory.Manager) (render.Payload, error) {
 				return m.Edit(args[0], p)
 			})
 		},
@@ -175,7 +183,7 @@ func newMemoryRemoveCmd(env *Env) *cobra.Command {
 		Short: "Remove a memory (hard delete; id retired)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withManager(env, func(m *memory.Manager) (render.Payload, error) {
+			return withManager(env, "memory.remove", slog.LevelInfo, func(m *memory.Manager) (render.Payload, error) {
 				return m.Remove(args[0])
 			})
 		},
@@ -193,7 +201,7 @@ func newMemoryLinkCmd(env *Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return withManager(env, func(m *memory.Manager) (render.Payload, error) {
+			return withManager(env, "memory.link", slog.LevelInfo, func(m *memory.Manager) (render.Payload, error) {
 				return m.Link(args[0], lk)
 			})
 		},
@@ -209,7 +217,7 @@ func newMemoryListCmd(env *Env) *cobra.Command {
 		Short: "List memories",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withManager(env, func(m *memory.Manager) (render.Payload, error) {
+			return withManager(env, "memory.list", slog.LevelDebug, func(m *memory.Manager) (render.Payload, error) {
 				return m.List(kind, tag)
 			})
 		},
@@ -226,7 +234,7 @@ func newMemorySearchCmd(env *Env) *cobra.Command {
 		Short: "Search memories (FTS5)",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withManager(env, func(m *memory.Manager) (render.Payload, error) {
+			return withManager(env, "memory.search", slog.LevelDebug, func(m *memory.Manager) (render.Payload, error) {
 				return m.Search(strings.Join(args, " "), limit)
 			})
 		},
@@ -241,7 +249,7 @@ func newMemoryValidateCmd(env *Env) *cobra.Command {
 		Short: "Validate memory evidence and links (drift is a warning)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withManager(env, func(m *memory.Manager) (render.Payload, error) {
+			return withManager(env, "memory.validate", slog.LevelDebug, func(m *memory.Manager) (render.Payload, error) {
 				return m.Validate()
 			})
 		},
@@ -259,7 +267,7 @@ func newMemoryExportCmd(env *Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer proj.DB.Close()
+			defer proj.Close()
 			mgr := &memory.Manager{DB: proj.DB, Clock: env.Clock, WorkDir: env.WorkDir}
 			doc, err := mgr.Export(kind, tag)
 			if err != nil {
@@ -304,7 +312,7 @@ func newMemoryImportCmd(env *Env) *cobra.Command {
 			if err := json.Unmarshal(raw, &doc); err != nil {
 				return &contract.Error{Code: contract.CodeConfigInvalid, Message: "invalid import document: " + err.Error()}
 			}
-			return withManager(env, func(m *memory.Manager) (render.Payload, error) {
+			return withManager(env, "memory.import", slog.LevelInfo, func(m *memory.Manager) (render.Payload, error) {
 				return m.Import(doc, preserveIDs)
 			})
 		},

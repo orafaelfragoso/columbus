@@ -19,20 +19,23 @@ func newShowCmd(env *Env) *cobra.Command {
 }
 
 // withShower opens the project, builds a Shower and a registry, and invokes fn.
-func withShower(env *Env, fn func(*show.Shower) (render.Payload, error)) error {
+// show is a read, so it logs at debug.
+func withShower(env *Env, cmdName string, fn func(*show.Shower) (render.Payload, error)) error {
 	proj, err := env.openProject()
 	if err != nil {
 		return err
 	}
-	defer proj.DB.Close()
+	defer proj.Close()
 	reg, err := extract.NewRegistry()
 	if err != nil {
 		return err
 	}
 	payload, err := fn(&show.Shower{DB: proj.DB, WorkDir: env.WorkDir, Registry: reg})
 	if err != nil {
+		proj.Logger.Info(cmdName+" failed", "error", err.Error())
 		return err
 	}
+	proj.Logger.Debug(cmdName)
 	return renderResult(env, payload)
 }
 
@@ -44,7 +47,7 @@ func newShowSymbolCmd(env *Env) *cobra.Command {
 		Short: "Show all definitions of a symbol",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withShower(env, func(s *show.Shower) (render.Payload, error) {
+			return withShower(env, "show.symbol", func(s *show.Shower) (render.Payload, error) {
 				return s.Symbol(args[0], in, contextLines)
 			})
 		},
@@ -61,7 +64,7 @@ func newShowFileCmd(env *Env) *cobra.Command {
 		Short: "Show a file's outline and graph",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withShower(env, func(s *show.Shower) (render.Payload, error) {
+			return withShower(env, "show.file", func(s *show.Shower) (render.Payload, error) {
 				return s.File(args[0], contextLines)
 			})
 		},
@@ -76,7 +79,7 @@ func newShowMemoryCmd(env *Env) *cobra.Command {
 		Short: "Show a memory by id (mem_NNN)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withShower(env, func(s *show.Shower) (render.Payload, error) {
+			return withShower(env, "show.memory", func(s *show.Shower) (render.Payload, error) {
 				return s.Memory(args[0])
 			})
 		},

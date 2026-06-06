@@ -30,7 +30,7 @@ func newSearchCmd(env *Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer proj.DB.Close()
+			defer proj.Close()
 
 			reg, err := extract.NewRegistry()
 			if err != nil {
@@ -50,8 +50,10 @@ func newSearchCmd(env *Env) *cobra.Command {
 				Graph:        graph,
 			})
 			if err != nil {
+				proj.Logger.Info("search failed", "error", err.Error())
 				return err
 			}
+			proj.Logger.Debug("search", "kind", kind.String(), "results", res.Total)
 			res.Warnings = append(res.Warnings, proj.Warnings...)
 			return renderResult(env, res)
 		},

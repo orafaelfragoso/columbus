@@ -39,7 +39,15 @@ type Env struct {
 
 	// renderOpts is resolved from persistent flags in PersistentPreRunE.
 	renderOpts render.Options
+	// exitOverride lets a command that renders its own payload still request a
+	// non-zero exit (e.g. doctor reporting failed checks) without emitting an
+	// error envelope. 0 means "use the normal mapping".
+	exitOverride int
 }
+
+// setExit requests a process exit code for a command that has already rendered
+// its payload.
+func (e *Env) setExit(code int) { e.exitOverride = code }
 
 // resolveRenderOptions computes the render options from the parsed flags.
 func (e *Env) resolveRenderOptions(asJSON, asLLM, noColor bool) error {

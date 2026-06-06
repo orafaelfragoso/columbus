@@ -56,6 +56,7 @@ func newRootCmd(env *Env) *cobra.Command {
 	root.AddCommand(newVersionCmd(env))
 	root.AddCommand(newInitCmd(env))
 	root.AddCommand(newIndexCmd(env))
+	root.AddCommand(newDoctorCmd(env))
 	root.AddCommand(newSelftestCmd(env))
 
 	return root
@@ -76,7 +77,7 @@ func Execute(args []string, env Env) int {
 
 	err := root.Execute()
 	if err == nil {
-		return int(contract.ExitOK)
+		return env.exitOverride
 	}
 
 	ce := toContractError(err)

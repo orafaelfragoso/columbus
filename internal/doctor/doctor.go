@@ -90,6 +90,7 @@ func Run(p Params) (Result, contract.Code) {
 	var checks []Check
 	add := func(c Check) { checks = append(checks, c) }
 
+	add(Check{Name: "columbus", Status: StatusOK, Detail: "version " + valueOr(p.Version, "dev")})
 	add(checkBinary("git", []string{"git"}, true))
 	add(checkBinary("ripgrep", []string{"rg"}, false))
 	add(checkOptional("ast-grep", []string{"ast-grep", "sg"}))
@@ -223,6 +224,13 @@ func worstCode(checks []Check, cfgCode contract.Code) contract.Code {
 		}
 	}
 	return ""
+}
+
+func valueOr(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return v
 }
 
 func lookAny(candidates []string) (string, bool) {

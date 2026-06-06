@@ -1,0 +1,101 @@
+# goreleaser configuration for Columbus.
+#
+# cgo is always on (tree-sitter + sqlite are C). Cross-compilation uses a single
+# Linux pipeline driven by `zig cc`, which ships a C toolchain for every target.
+# Run `goreleaser release --clean` on a tag in CI (see .github/workflows/release.yml).
+version: 2
+
+project_name: columbus
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: columbus
+    main: ./cmd/columbus
+    binary: columbus
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -tags=fts5
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .Commit }}
+      - -X main.date={{ .Date }}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # Per-target C cross-compilers via zig. sqlite + tree-sitter compile cleanly
+    # under zig cc for all four targets.
+    overrides:
+      - goos: linux
+        goarch: amd64
+        env:
+          - CC=zig cc -target x86_64-linux-gnu
+          - CXX=zig c++ -target x86_64-linux-gnu
+      - goos: linux
+        goarch: arm64
+        env:
+          - CC=zig cc -target aarch64-linux-gnu
+          - CXX=zig c++ -target aarch64-linux-gnu
+      - goos: darwin
+        goarch: amd64
+        env:
+          - CC=zig cc -target x86_64-macos-none
+          - CXX=zig c++ -target x86_64-macos-none
+      - goos: darwin
+        goarch: arm64
+        env:
+          - CC=zig cc -target aarch64-macos-none
+          - CXX=zig c++ -target aarch64-macos-none
+
+archives:
+  - id: default
+    ids:
+      - columbus
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+# Homebrew tap. ripgrep is a declared dependency (the search fast-path);
+# ast-grep stays optional; git is assumed present.
+brews:
+  - name: columbus
+    ids:
+      - default
+    repository:
+      owner: rafaelfragoso
+      name: homebrew-columbus
+    homepage: "https://github.com/rafaelfragoso/columbus"
+    description: "Local-only, deterministic code-context server for code agents"
+    license: "MIT"
+    dependencies:
+      - name: ripgrep
+    test: |
+      system "#{bin}/columbus", "version"
+    install: |
+      bin.install "columbus"
+
+release:
+  draft: false
+  prerelease: auto

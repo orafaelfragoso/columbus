@@ -2,9 +2,60 @@ package grep
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
+
+// ripgrepOrSkip returns a ripgrep searcher, skipping the test if rg is absent.
+func ripgrepOrSkip(t *testing.T) ripgrep {
+	t.Helper()
+	path, err := exec.LookPath("rg")
+	if err != nil {
+		t.Skip("ripgrep not installed")
+	}
+	return ripgrep{bin: path}
+}
+
+// Tokens are matched as literal substrings, never regex. The two backends must
+// agree: ripgrep without --fixed-strings would treat "a.b" as a regex and also
+// match "axb", diverging from the pure-Go literal fallback.
+func TestRipgrepMatchesLiteralsLikeGoBackend(t *testing.T) {
+	rg := ripgrepOrSkip(t)
+	work := t.TempDir()
+	os.WriteFile(filepath.Join(work, "a.go"), []byte("the a.b literal\nthe axb regexish\n"), 0o644)
+	allow := map[string]bool{"a.go": true}
+
+	rgHits, err := rg.Search(work, []string{"a.b"}, allow, 100)
+	if err != nil {
+		t.Fatalf("ripgrep Search: %v", err)
+	}
+	goHits, err := goGrep{}.Search(work, []string{"a.b"}, allow, 100)
+	if err != nil {
+		t.Fatalf("goGrep Search: %v", err)
+	}
+	if len(rgHits) != len(goHits) {
+		t.Fatalf("backend divergence: ripgrep %d hits, go %d hits (token treated as regex?)", len(rgHits), len(goHits))
+	}
+	if len(goHits) != 1 || goHits[0].Line != 1 {
+		t.Fatalf("expected the single literal a.b hit on line 1, got %+v", goHits)
+	}
+}
+
+// A token containing regex-special characters must not make ripgrep error out
+// (an invalid-regex exit would be reported as a generic failure).
+func TestRipgrepHandlesRegexMetacharacterToken(t *testing.T) {
+	rg := ripgrepOrSkip(t)
+	work := t.TempDir()
+	os.WriteFile(filepath.Join(work, "a.go"), []byte("call foo( here\n"), 0o644)
+	hits, err := rg.Search(work, []string{"foo("}, map[string]bool{"a.go": true}, 100)
+	if err != nil {
+		t.Fatalf("ripgrep errored on metacharacter token: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("expected one literal match for %q, got %+v", "foo(", hits)
+	}
+}
 
 func TestGoGrepFindsTokensInAllowedFiles(t *testing.T) {
 	work := t.TempDir()

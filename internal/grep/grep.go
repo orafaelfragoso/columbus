@@ -51,9 +51,13 @@ func (r ripgrep) Search(workDir string, tokens []string, allow map[string]bool, 
 	if len(tokens) == 0 {
 		return nil, nil
 	}
-	args := []string{"--json", "-i", "--no-messages"}
+	// --fixed-strings: tokens are matched literally, mirroring the pure-Go
+	// fallback's substring semantics. Without it ripgrep treats tokens as
+	// regex, so a metacharacter token would either match extra lines or fail
+	// to compile — diverging from goGrep.
+	args := []string{"--json", "-i", "--no-messages", "--fixed-strings"}
 	for _, t := range tokens {
-		args = append(args, "-e", t) // tokens are word-ish; treated as regex but safe
+		args = append(args, "-e", t)
 	}
 	args = append(args, "--", ".")
 	cmd := exec.Command(r.bin, args...)

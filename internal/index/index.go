@@ -98,7 +98,48 @@ func (ix *Indexer) Run(mode Mode) (IndexResult, error) {
 	if mode == ModeStatus {
 		return ix.summarizeStatus(git, cands, existing, outcomes)
 	}
-	return ix.write(git, mode, cands, existing, outcomes)
+	res, err := ix.write(git, mode, cands, existing, outcomes)
+	if err != nil {
+		return IndexResult{}, err
+	}
+	if err := ix.resolveGraphEdges(); err != nil {
+		return IndexResult{}, err
+	}
+	return res, nil
+}
+
+// resolveGraphEdges recomputes best-effort dependency edges and test links from
+// the now-complete files/imports tables.
+func (ix *Indexer) resolveGraphEdges() error {
+	files, err := ix.DB.AllFiles()
+	if err != nil {
+		return err
+	}
+	imports, err := ix.DB.AllImports()
+	if err != nil {
+		return err
+	}
+	metas := make([]FileMeta, len(files))
+	for i, f := range files {
+		metas[i] = FileMeta{ID: f.ID, Path: f.Path, Role: f.Role, Language: f.Language}
+	}
+	rawImports := make([]ImportRow, len(imports))
+	for i, im := range imports {
+		rawImports[i] = ImportRow{FileID: im.FileID, Specifier: im.Specifier}
+	}
+	depEdges, testLinks := resolveGraph(metas, rawImports)
+
+	edges := make([][2]int64, len(depEdges))
+	for i, e := range depEdges {
+		edges[i] = [2]int64{e.From, e.To}
+	}
+	links := make([][2]int64, len(testLinks))
+	for i, l := range testLinks {
+		links[i] = [2]int64{l.Impl, l.Test}
+	}
+	return ix.DB.WithTx(func(tx *store.Tx) error {
+		return tx.ReplaceGraph(edges, links)
+	})
 }
 
 // scan runs phase 1: read, hash, change-detect and (optionally) parse each

@@ -127,6 +127,41 @@ func TestEpicRefAndValidateCLI(t *testing.T) {
 
 func contains(s, sub string) bool { return bytes.Contains([]byte(s), []byte(sub)) }
 
+func TestShowEpicE2E(t *testing.T) {
+	work, data := t.TempDir(), t.TempDir()
+	initProject(t, work, data)
+	runProj(t, work, data, "epic", "add", "--title", "Ship search", "--tag", "search")
+	runProj(t, work, data, "task", "add", "--epic", "epic_001", "--title", "child")
+	runProj(t, work, data, "epic", "status", "epic_001", "--to", "in_progress", "--comment", "go")
+
+	out, _, code := runProj(t, work, data, "show", "epic", "epic_001", "--json")
+	if code != 0 {
+		t.Fatalf("show epic exit = %d", code)
+	}
+	var v struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+		Tasks  []struct {
+			ID string `json:"id"`
+		} `json:"tasks"`
+		Events []struct {
+			Status string `json:"status"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		t.Fatalf("not json: %v\n%s", err, out)
+	}
+	if v.ID != "epic_001" || v.Status != "in_progress" {
+		t.Fatalf("view = %+v", v)
+	}
+	if len(v.Tasks) != 1 || v.Tasks[0].ID != "task_001" {
+		t.Fatalf("child tasks = %+v", v.Tasks)
+	}
+	if len(v.Events) != 2 {
+		t.Fatalf("events = %+v, want 2 (initial todo + in_progress)", v.Events)
+	}
+}
+
 func TestStatusRejectsUnknownCLI(t *testing.T) {
 	work, data := t.TempDir(), t.TempDir()
 	initProject(t, work, data)

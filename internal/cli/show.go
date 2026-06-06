@@ -14,7 +14,8 @@ func newShowCmd(env *Env) *cobra.Command {
 		Short: "Show a symbol, file, or memory in detail",
 		Args:  cobra.NoArgs,
 	}
-	cmd.AddCommand(newShowSymbolCmd(env), newShowFileCmd(env), newShowMemoryCmd(env))
+	cmd.AddCommand(newShowSymbolCmd(env), newShowFileCmd(env), newShowMemoryCmd(env),
+		newShowEpicCmd(env), newShowTaskCmd(env))
 	return cmd
 }
 
@@ -81,6 +82,32 @@ func newShowMemoryCmd(env *Env) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withShower(env, "show.memory", func(s *show.Shower) (render.Payload, error) {
 				return s.Memory(args[0])
+			})
+		},
+	}
+}
+
+func newShowEpicCmd(env *Env) *cobra.Command {
+	return &cobra.Command{
+		Use:   "epic <id>",
+		Short: "Show an epic by id (epic_NNN): fields, refs, history, child tasks",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withShower(env, "show.epic", func(s *show.Shower) (render.Payload, error) {
+				return s.Epic(args[0])
+			})
+		},
+	}
+}
+
+func newShowTaskCmd(env *Env) *cobra.Command {
+	return &cobra.Command{
+		Use:   "task <id>",
+		Short: "Show a task by id (task_NNN): fields, refs, history",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withShower(env, "show.task", func(s *show.Shower) (render.Payload, error) {
+				return s.Task(args[0])
 			})
 		},
 	}

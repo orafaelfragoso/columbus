@@ -1,12 +1,36 @@
 package gitrepo
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestDiscoverContextReportsCancellation(t *testing.T) {
+	dir := initRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := DiscoverContext(ctx, dir); err == nil {
+		t.Fatal("expected an error from a cancelled context, got nil (cancellation must not be misread as 'not a repo')")
+	}
+}
+
+func TestCancelledContextStopsGitOperations(t *testing.T) {
+	dir := initRepo(t)
+	info, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	info = info.WithContext(ctx)
+	if _, err := info.ListTracked(); err == nil {
+		t.Fatal("expected ListTracked to fail under a cancelled context")
+	}
+}
 
 func initRepo(t *testing.T) string {
 	t.Helper()

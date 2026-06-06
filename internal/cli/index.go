@@ -35,6 +35,7 @@ func newIndexCmd(env *Env) *cobra.Command {
 				Clock:       env.Clock,
 				MaxFileSize: proj.Config.Indexing.MaxFileSize,
 				Excludes:    proj.Config.Indexing.Exclude,
+				Ctx:         env.ctx(),
 			}
 			res, err := ix.Run(mode)
 			if err != nil {

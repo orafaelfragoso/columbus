@@ -16,6 +16,7 @@ func newDoctorCmd(env *Env) *cobra.Command {
 				WorkDir: env.WorkDir,
 				Getenv:  env.Getenv,
 				Version: env.Version.Version,
+				Ctx:     env.ctx(),
 			})
 			if err := renderResult(env, res); err != nil {
 				return err

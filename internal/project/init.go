@@ -3,6 +3,7 @@
 package project
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ type InitParams struct {
 	WorkDir string
 	IDs     ids.Source
 	Getenv  func(string) string
+	Ctx     context.Context
 }
 
 // InitResult is the typed result of init.
@@ -81,7 +83,7 @@ func Init(p InitParams) (InitResult, error) {
 		return InitResult{}, err
 	}
 
-	gitExcluded, err := excludeFromGit(p.WorkDir)
+	gitExcluded, err := excludeFromGit(p.Ctx, p.WorkDir)
 	if err != nil {
 		return InitResult{}, err
 	}
@@ -103,7 +105,7 @@ func Init(p InitParams) (InitResult, error) {
 // finishExisting handles the idempotent re-init path: ensure the store and git
 // exclude exist, but keep the existing project_id.
 func finishExisting(p InitParams, cfg config.Config, configPath string, warnings []string) (InitResult, error) {
-	gitExcluded, err := excludeFromGit(p.WorkDir)
+	gitExcluded, err := excludeFromGit(p.Ctx, p.WorkDir)
 	if err != nil {
 		return InitResult{}, err
 	}
@@ -122,8 +124,15 @@ func finishExisting(p InitParams, cfg config.Config, configPath string, warnings
 	}, nil
 }
 
-func excludeFromGit(workDir string) (bool, error) {
-	info, err := gitrepo.Discover(workDir)
+func ctxOrBackground(ctx context.Context) context.Context {
+	if ctx != nil {
+		return ctx
+	}
+	return context.Background()
+}
+
+func excludeFromGit(ctx context.Context, workDir string) (bool, error) {
+	info, err := gitrepo.DiscoverContext(ctxOrBackground(ctx), workDir)
 	if err != nil {
 		return false, err
 	}

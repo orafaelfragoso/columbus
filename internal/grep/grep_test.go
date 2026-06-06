@@ -1,6 +1,7 @@
 package grep
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,6 +91,35 @@ func TestGoGrepRespectsCap(t *testing.T) {
 func TestNewReturnsASearcher(t *testing.T) {
 	if New() == nil {
 		t.Fatal("New returned nil")
+	}
+}
+
+func TestNewContextReturnsASearcher(t *testing.T) {
+	if NewContext(context.Background()) == nil {
+		t.Fatal("NewContext returned nil")
+	}
+}
+
+func TestRipgrepHonorsCancellation(t *testing.T) {
+	rg := ripgrepOrSkip(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rg.ctx = ctx
+	work := t.TempDir()
+	os.WriteFile(filepath.Join(work, "a.go"), []byte("foo\n"), 0o644)
+	if _, err := rg.Search(work, []string{"foo"}, map[string]bool{"a.go": true}, 10); err == nil {
+		t.Fatal("expected ripgrep Search to fail under a cancelled context")
+	}
+}
+
+func TestGoGrepHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	work := t.TempDir()
+	os.WriteFile(filepath.Join(work, "a.go"), []byte("foo\n"), 0o644)
+	g := goGrep{ctx: ctx}
+	if _, err := g.Search(work, []string{"foo"}, map[string]bool{"a.go": true}, 10); err == nil {
+		t.Fatal("expected goGrep Search to fail under a cancelled context")
 	}
 }
 

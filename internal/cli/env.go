@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"io"
 	"os"
 
@@ -50,6 +51,10 @@ type Env struct {
 	// Getenv reads environment variables (injected for test isolation).
 	Getenv func(string) string
 
+	// Ctx cancels long-running work and its child processes (git, ripgrep) on
+	// SIGINT/SIGTERM. nil is treated as context.Background().
+	Ctx context.Context
+
 	Version BuildInfo
 
 	// renderOpts is resolved from persistent flags in PersistentPreRunE.
@@ -63,6 +68,14 @@ type Env struct {
 // setExit requests a process exit code for a command that has already rendered
 // its payload.
 func (e *Env) setExit(code int) { e.exitOverride = code }
+
+// ctx returns the cancellation context, defaulting to background.
+func (e *Env) ctx() context.Context {
+	if e.Ctx != nil {
+		return e.Ctx
+	}
+	return context.Background()
+}
 
 // resolveRenderOptions computes the render options from the parsed flags.
 func (e *Env) resolveRenderOptions(asJSON, asLLM, noColor bool) error {

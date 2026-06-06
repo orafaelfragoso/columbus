@@ -16,6 +16,7 @@ func newInitCmd(env *Env) *cobra.Command {
 				WorkDir: env.WorkDir,
 				IDs:     env.IDs,
 				Getenv:  env.Getenv,
+				Ctx:     env.ctx(),
 			})
 			if err != nil {
 				return err

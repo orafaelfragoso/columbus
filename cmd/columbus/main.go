@@ -4,8 +4,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/rafaelfragoso/columbus/internal/cli"
 	"github.com/rafaelfragoso/columbus/internal/clock"
@@ -27,6 +30,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error [%s]: %s\n", ce.Code, ce.Message)
 		os.Exit(int(ce.Code.Exit()))
 	}
+	// A received signal cancels ctx, which propagates to child processes (git,
+	// ripgrep) via exec.CommandContext so they are torn down promptly. The
+	// signal is recorded so the process can exit with the conventional code.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	caught := make(chan os.Signal, 1)
+	go func() {
+		s := <-sigCh
+		caught <- s
+		cancel()
+	}()
+
 	env := cli.Env{
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
@@ -35,7 +52,19 @@ func main() {
 		IDs:     ids.Crypto{},
 		WorkDir: wd,
 		Getenv:  os.Getenv,
+		Ctx:     ctx,
 		Version: cli.BuildInfo{Version: version, Commit: commit, Date: date},
 	}
-	os.Exit(cli.Execute(os.Args[1:], env))
+	code := cli.Execute(os.Args[1:], env)
+
+	// If a signal interrupted us, prefer the conventional 128+signum code.
+	select {
+	case s := <-caught:
+		if sn, ok := s.(syscall.Signal); ok {
+			os.Exit(128 + int(sn))
+		}
+		os.Exit(130)
+	default:
+		os.Exit(code)
+	}
 }

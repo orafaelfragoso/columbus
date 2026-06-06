@@ -4,6 +4,7 @@
 package index
 
 import (
+	"context"
 	"runtime"
 	"sync"
 
@@ -54,6 +55,15 @@ type Indexer struct {
 	MaxFileSize int64
 	Excludes    []string
 	Concurrency int
+	// Ctx cancels git subprocesses spawned during indexing. nil = background.
+	Ctx context.Context
+}
+
+func (ix *Indexer) ctx() context.Context {
+	if ix.Ctx != nil {
+		return ix.Ctx
+	}
+	return context.Background()
 }
 
 // parsed is the parse output for a changed file, ready to write.
@@ -75,7 +85,7 @@ type outcome struct {
 
 // Run executes the indexing operation for the given mode and returns stats.
 func (ix *Indexer) Run(mode Mode) (IndexResult, error) {
-	git, err := gitrepo.Discover(ix.WorkDir)
+	git, err := gitrepo.DiscoverContext(ix.ctx(), ix.WorkDir)
 	if err != nil {
 		return IndexResult{}, err
 	}

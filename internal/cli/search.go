@@ -40,7 +40,7 @@ func newSearchCmd(env *Env) *cobra.Command {
 				DB:       proj.DB,
 				WorkDir:  env.WorkDir,
 				Registry: reg,
-				Searcher: grep.New(),
+				Searcher: grep.NewContext(env.ctx()),
 			}
 			res, err := engine.Search(search.Query{
 				Text:         strings.Join(args, " "),

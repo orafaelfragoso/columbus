@@ -4,6 +4,7 @@
 package doctor
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -81,6 +82,14 @@ type Params struct {
 	WorkDir string
 	Getenv  func(string) string
 	Version string
+	Ctx     context.Context
+}
+
+func ctxOrBackground(ctx context.Context) context.Context {
+	if ctx != nil {
+		return ctx
+	}
+	return context.Background()
 }
 
 // Run executes all checks. The returned Code is empty when the project is
@@ -195,7 +204,7 @@ func checkIndex(p Params, db *store.DB) Check {
 	}
 	detail := fmt.Sprintf("%d files, %d symbols", meta.FilesCount, meta.SymbolsCount)
 
-	git, gerr := gitrepo.Discover(p.WorkDir)
+	git, gerr := gitrepo.DiscoverContext(ctxOrBackground(p.Ctx), p.WorkDir)
 	if gerr == nil && git.IsRepo {
 		if head, _ := git.HeadOID(); head != "" && meta.IndexedHead != "" && head != meta.IndexedHead {
 			return Check{Name: "index", Status: StatusWarn, Detail: detail + " (stale: HEAD moved since last index)", Hint: "run columbus index"}

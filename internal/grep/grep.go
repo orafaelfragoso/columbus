@@ -7,6 +7,7 @@ package grep
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -32,18 +33,32 @@ type Searcher interface {
 	Name() string
 }
 
-// New returns the ripgrep searcher when rg is available, else the pure-Go
-// fallback.
-func New() Searcher {
+// New returns a searcher bound to a background context.
+func New() Searcher { return NewContext(context.Background()) }
+
+// NewContext returns the ripgrep searcher when rg is available, else the
+// pure-Go fallback. Both bind their work to ctx, so cancelling it (e.g. on
+// SIGINT/SIGTERM) stops the search and terminates any ripgrep subprocess.
+func NewContext(ctx context.Context) Searcher {
 	if path, err := exec.LookPath("rg"); err == nil {
-		return ripgrep{bin: path}
+		return ripgrep{bin: path, ctx: ctx}
 	}
-	return goGrep{}
+	return goGrep{ctx: ctx}
+}
+
+func ctxOrBackground(ctx context.Context) context.Context {
+	if ctx != nil {
+		return ctx
+	}
+	return context.Background()
 }
 
 // ---- ripgrep fast path ----
 
-type ripgrep struct{ bin string }
+type ripgrep struct {
+	bin string
+	ctx context.Context
+}
 
 func (r ripgrep) Name() string { return "ripgrep" }
 
@@ -60,10 +75,13 @@ func (r ripgrep) Search(workDir string, tokens []string, allow map[string]bool, 
 		args = append(args, "-e", t)
 	}
 	args = append(args, "--", ".")
-	cmd := exec.Command(r.bin, args...)
+	cmd := exec.CommandContext(ctxOrBackground(r.ctx), r.bin, args...)
 	cmd.Dir = workDir
 	out, err := cmd.Output()
 	if err != nil {
+		if ctxOrBackground(r.ctx).Err() != nil {
+			return nil, ctxOrBackground(r.ctx).Err()
+		}
 		// rg exits 1 when there are no matches; that is not an error.
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && ee.ExitCode() == 1 {
@@ -107,14 +125,15 @@ func parseRipgrep(out []byte, allow map[string]bool, cap int) []Hit {
 
 // ---- pure-Go fallback ----
 
-type goGrep struct{}
+type goGrep struct{ ctx context.Context }
 
 func (goGrep) Name() string { return "go" }
 
-func (goGrep) Search(workDir string, tokens []string, allow map[string]bool, cap int) ([]Hit, error) {
+func (g goGrep) Search(workDir string, tokens []string, allow map[string]bool, cap int) ([]Hit, error) {
 	if len(tokens) == 0 {
 		return nil, nil
 	}
+	ctx := ctxOrBackground(g.ctx)
 	lowered := make([]string, len(tokens))
 	for i, t := range tokens {
 		lowered[i] = strings.ToLower(t)
@@ -128,6 +147,9 @@ func (goGrep) Search(workDir string, tokens []string, allow map[string]bool, cap
 
 	var hits []Hit
 	for _, rel := range paths {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		f, err := os.Open(filepath.Join(workDir, filepath.FromSlash(rel)))
 		if err != nil {
 			continue

@@ -5,6 +5,7 @@ package gitrepo
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,13 +22,39 @@ type Info struct {
 	IsRepo bool
 	// GitDir is the absolute path to the .git directory (empty if not a repo).
 	GitDir string
+	// ctx cancels the git subprocesses (e.g. on SIGINT). nil means background.
+	ctx context.Context
 }
 
-// Discover inspects workDir. Being outside a repo is not an error (Columbus
-// supports the non-git path); IsRepo is simply false.
+// WithContext returns a copy of Info whose git subprocesses are bound to ctx,
+// so cancelling ctx (e.g. on SIGINT/SIGTERM) terminates them promptly.
+func (i Info) WithContext(ctx context.Context) Info {
+	i.ctx = ctx
+	return i
+}
+
+func (i Info) context() context.Context {
+	if i.ctx != nil {
+		return i.ctx
+	}
+	return context.Background()
+}
+
+// Discover inspects workDir using a background context.
 func Discover(workDir string) (Info, error) {
-	out, err := run(workDir, "rev-parse", "--absolute-git-dir")
+	return DiscoverContext(context.Background(), workDir)
+}
+
+// DiscoverContext inspects workDir, binding git subprocesses to ctx. Being
+// outside a repo is not an error (Columbus supports the non-git path); IsRepo
+// is simply false. A cancelled context is reported as an error rather than
+// misread as "not a repo".
+func DiscoverContext(ctx context.Context, workDir string) (Info, error) {
+	out, err := run(ctx, workDir, "rev-parse", "--absolute-git-dir")
 	if err != nil {
+		if ctx.Err() != nil {
+			return Info{}, &contract.Error{Code: contract.CodeStoreError, Message: ctx.Err().Error()}
+		}
 		// Not a repo: git exits non-zero. Distinguish a missing git binary.
 		if _, lookErr := exec.LookPath("git"); lookErr != nil {
 			return Info{}, &contract.Error{
@@ -36,12 +63,13 @@ func Discover(workDir string) (Info, error) {
 				Hint:    "install git",
 			}
 		}
-		return Info{WorkDir: workDir, IsRepo: false}, nil
+		return Info{WorkDir: workDir, IsRepo: false, ctx: ctx}, nil
 	}
 	return Info{
 		WorkDir: workDir,
 		IsRepo:  true,
 		GitDir:  strings.TrimSpace(out),
+		ctx:     ctx,
 	}, nil
 }
 
@@ -98,8 +126,11 @@ func (i Info) ListModified() ([]string, error) {
 
 // HeadOID returns the current HEAD commit oid, or "" if the repo has no commits.
 func (i Info) HeadOID() (string, error) {
-	out, err := run(i.WorkDir, "rev-parse", "HEAD")
+	out, err := run(i.context(), i.WorkDir, "rev-parse", "HEAD")
 	if err != nil {
+		if i.context().Err() != nil {
+			return "", &contract.Error{Code: contract.CodeStoreError, Message: i.context().Err().Error()}
+		}
 		// No commits yet (unborn HEAD) is not an error for our purposes.
 		return "", nil
 	}
@@ -112,7 +143,7 @@ func (i Info) IsDirty() (bool, error) {
 	if !i.IsRepo {
 		return false, nil
 	}
-	out, err := run(i.WorkDir, "status", "--porcelain")
+	out, err := run(i.context(), i.WorkDir, "status", "--porcelain")
 	if err != nil {
 		return false, &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
 	}
@@ -121,7 +152,7 @@ func (i Info) IsDirty() (bool, error) {
 
 // lines runs a git command emitting NUL-separated paths and returns them.
 func (i Info) lines(args ...string) ([]string, error) {
-	out, err := run(i.WorkDir, args...)
+	out, err := run(i.context(), i.WorkDir, args...)
 	if err != nil {
 		return nil, &contract.Error{Code: contract.CodeStoreError, Message: "git " + strings.Join(args, " ") + ": " + err.Error()}
 	}
@@ -134,9 +165,10 @@ func (i Info) lines(args ...string) ([]string, error) {
 	return paths, nil
 }
 
-// run executes a git subcommand in dir and returns stdout.
-func run(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+// run executes a git subcommand in dir and returns stdout. The command is
+// bound to ctx, so cancelling ctx terminates the subprocess.
+func run(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out

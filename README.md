@@ -10,7 +10,8 @@ a tool. Columbus does exactly three things:
 
 1. **Index** the codebase (embedded tree-sitter).
 2. **Search** — return LLM-ready context to the caller.
-3. **Memory** — own and control the project's durable memory.
+3. **Memory** — own the project's durable memory, including structured memory
+   (epics & tasks).
 
 Everything else — orchestration, hooks, guardrails, verification — lives in the
 agent/plugin, not here. There are no LLM calls: all ranking, "why relevant"
@@ -59,9 +60,38 @@ columbus memory add --kind decision --title "Use WAL" --body "readers never bloc
 columbus memory list
 columbus memory search journal
 columbus memory validate            # evidence drift + link resolution (warnings, never fatal)
-columbus memory export --out memories.json
-columbus memory import memories.json
+columbus memory export --out knowledge.json   # unified doc: memories + epics + tasks
+columbus memory import knowledge.json
 ```
+
+### Epics & tasks
+
+Structured memory: a passive, durable record of work (status, history, comments,
+references) alongside memories. Columbus *stores and retrieves* — it never
+drives, gates, or enforces transitions. `status` is just a recorded field from a
+fixed vocabulary: `todo`, `in_progress`, `blocked`, `done`, `cancelled` (any →
+any; no order enforced).
+
+```sh
+columbus epic add --title "Ship search" --tag infra
+columbus task add --epic epic_001 --title "Index FTS"
+columbus task status task_001 --to in_progress --comment "started"
+columbus task comment task_001 --text "blocked on tokenizer choice"
+columbus epic ref epic_001 --file internal/search/search.go --memory mem_003
+columbus epic list --status in_progress
+columbus task list --epic epic_001
+columbus show epic epic_001          # fields, refs (inline drift), history, child tasks
+columbus show task task_001
+columbus epic validate               # reference drift scan (warnings, never fatal)
+columbus search "search" --kind epic # epics/tasks are searchable (also in --kind all)
+columbus epic delete epic_001 --force   # destructive; cascades child tasks; id retired
+```
+
+Each epic/task carries an append-only event log (every status change and
+comment), a denormalized current status for fast `list --status`, and
+drift-checked references to indexed `file`/`dir`/`memory`/`symbol` targets.
+`show file|symbol|memory` lists in reverse the epics and tasks that reference
+that entity ("what work touches this?").
 
 ## Output modes
 

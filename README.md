@@ -67,7 +67,9 @@ columbus memory import memories.json
 
 `text` (default, human; color only on a TTY), `--json` (machine contract), and
 `--llm` (markdown) are pure projections of the same typed result — they can
-never silently diverge.
+never silently diverge. Color follows `--no-color`, then `NO_COLOR`,
+`FORCE_COLOR`, `TERM=dumb`, and `CI`, in that order, before falling back to TTY
+detection.
 
 ### Exit codes
 

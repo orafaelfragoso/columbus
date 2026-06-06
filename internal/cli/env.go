@@ -76,12 +76,27 @@ func (e *Env) resolveRenderOptions(asJSON, asLLM, noColor bool) error {
 		format = render.FormatLLM
 	}
 
-	color := false
-	if format == render.FormatText && !noColor && e.Getenv("NO_COLOR") == "" {
-		color = isTTY(e.Stdout)
-	}
-	e.renderOpts = render.Options{Format: format, Color: color}
+	e.renderOpts = render.Options{Format: format, Color: e.wantColor(format, noColor)}
 	return nil
+}
+
+// wantColor resolves ANSI color in priority order (first match wins): structured
+// formats never color; --no-color and NO_COLOR force off; FORCE_COLOR forces on;
+// TERM=dumb and CI force off; otherwise color follows whether stdout is a TTY.
+func (e *Env) wantColor(format render.Format, noColor bool) bool {
+	if format != render.FormatText {
+		return false
+	}
+	switch {
+	case noColor, e.Getenv("NO_COLOR") != "":
+		return false
+	case e.Getenv("FORCE_COLOR") != "":
+		return true
+	case e.Getenv("TERM") == "dumb", e.Getenv("CI") != "":
+		return false
+	default:
+		return isTTY(e.Stdout)
+	}
 }
 
 // isTTY reports whether w is a character device (terminal).

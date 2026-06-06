@@ -1,15 +1,47 @@
 package logging
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/rafaelfragoso/columbus/internal/clock"
 )
+
+func TestDebugErrLogsOnlyNonNilErrors(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	DebugErr(logger, "ImportedByCount", nil)
+	if buf.Len() != 0 {
+		t.Fatalf("nil error should log nothing, got %q", buf.String())
+	}
+
+	DebugErr(logger, "ImportedByCount", errors.New("disk gone"))
+	out := buf.String()
+	if !strings.Contains(out, "ImportedByCount") || !strings.Contains(out, "disk gone") {
+		t.Fatalf("expected op and error in log line, got %q", out)
+	}
+}
+
+func TestDebugErrRespectsLevel(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	DebugErr(logger, "TestsOf", errors.New("boom"))
+	if buf.Len() != 0 {
+		t.Fatalf("debug log must be suppressed at info level, got %q", buf.String())
+	}
+}
+
+func TestDebugErrNilLoggerIsNoop(t *testing.T) {
+	DebugErr(nil, "op", errors.New("boom")) // must not panic
+}
 
 func TestParseLevel(t *testing.T) {
 	cases := map[string]slog.Level{

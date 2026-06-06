@@ -55,6 +55,16 @@ func NewDiscard() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(io.Discard, nil))
 }
 
+// DebugErr records a best-effort enrichment read that failed, at debug level,
+// so a degraded result (empty graph/tests/memories) stays observable rather
+// than silent. It is a no-op for a nil error or a nil logger.
+func DebugErr(logger *slog.Logger, op string, err error) {
+	if err == nil || logger == nil {
+		return
+	}
+	logger.Debug("enrichment read failed", slog.String("op", op), slog.String("error", err.Error()))
+}
+
 // clockHandler overrides each record's timestamp with the injected clock.
 type clockHandler struct {
 	inner slog.Handler

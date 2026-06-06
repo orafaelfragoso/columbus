@@ -7,6 +7,7 @@ package search
 
 import (
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/rafaelfragoso/columbus/internal/extract"
 	"github.com/rafaelfragoso/columbus/internal/grep"
 	"github.com/rafaelfragoso/columbus/internal/live"
+	"github.com/rafaelfragoso/columbus/internal/logging"
 	"github.com/rafaelfragoso/columbus/internal/store"
 )
 
@@ -67,7 +69,11 @@ type Engine struct {
 	WorkDir  string
 	Registry *extract.Registry
 	Searcher grep.Searcher
+	// Logger records best-effort enrichment read failures at debug. nil = none.
+	Logger *slog.Logger
 }
+
+func (e *Engine) logErr(op string, err error) { logging.DebugErr(e.Logger, op, err) }
 
 const (
 	candidateCap = 200
@@ -205,9 +211,12 @@ func (e *Engine) metadataCandidates(match string, cands map[string]*codeCand) er
 }
 
 func (e *Engine) symbolCand(sym store.SymbolRow) *codeCand {
-	count, _ := e.DB.ImportedByCount(sym.FileID)
-	tests, _ := e.DB.TestsOf(sym.FileID)
-	mems, _ := e.DB.MemoriesForTarget("symbol", sym.Name)
+	count, err := e.DB.ImportedByCount(sym.FileID)
+	e.logErr("ImportedByCount", err)
+	tests, err := e.DB.TestsOf(sym.FileID)
+	e.logErr("TestsOf", err)
+	mems, err := e.DB.MemoriesForTarget("symbol", sym.Name)
+	e.logErr("MemoriesForTarget", err)
 	return &codeCand{
 		grain: "symbol", name: sym.Name, kind: sym.Kind, container: sym.Container,
 		signature: sym.Signature, path: sym.Path, pkg: sym.Package, role: sym.Role,
@@ -217,9 +226,12 @@ func (e *Engine) symbolCand(sym store.SymbolRow) *codeCand {
 }
 
 func (e *Engine) fileCand(file store.FileRow) *codeCand {
-	count, _ := e.DB.ImportedByCount(file.ID)
-	tests, _ := e.DB.TestsOf(file.ID)
-	mems, _ := e.DB.MemoriesForTarget("file", file.Path)
+	count, err := e.DB.ImportedByCount(file.ID)
+	e.logErr("ImportedByCount", err)
+	tests, err := e.DB.TestsOf(file.ID)
+	e.logErr("TestsOf", err)
+	mems, err := e.DB.MemoriesForTarget("file", file.Path)
+	e.logErr("MemoriesForTarget", err)
 	return &codeCand{
 		grain: "file", name: baseName(file.Path), path: file.Path, pkg: file.Package, role: file.Role,
 		fileID: file.ID, importedByCount: count, hasTests: len(tests) > 0, mems: mems,
@@ -289,9 +301,12 @@ func (e *Engine) contentCandidates(tokens []string, cands map[string]*codeCand) 
 			c.contentDensity = density
 			cands[key] = c
 		} else {
-			mems, _ := e.DB.MemoriesForTarget("symbol", a.sym.Name)
-			count, _ := e.DB.ImportedByCount(f.ID)
-			tests, _ := e.DB.TestsOf(f.ID)
+			mems, err := e.DB.MemoriesForTarget("symbol", a.sym.Name)
+			e.logErr("MemoriesForTarget", err)
+			count, err := e.DB.ImportedByCount(f.ID)
+			e.logErr("ImportedByCount", err)
+			tests, err := e.DB.TestsOf(f.ID)
+			e.logErr("TestsOf", err)
 			cands[key] = &codeCand{
 				grain: "symbol", name: a.sym.Name, kind: string(a.sym.Kind), container: a.sym.Container,
 				signature: a.sym.Signature, path: f.Path, pkg: f.Package, role: f.Role,
@@ -381,11 +396,14 @@ func (e *Engine) enrichGraph(hits []Hit, graph bool) error {
 		if !ok {
 			continue
 		}
-		tests, _ := e.DB.TestsOf(file.ID)
+		tests, err := e.DB.TestsOf(file.ID)
+		e.logErr("TestsOf", err)
 		h.Graph.Tests = tests
 		if graph {
-			h.Graph.Imports, _ = e.DB.ImportsOf(file.ID)
-			h.Graph.ImportedBy, _ = e.DB.ImportedBy(file.ID)
+			h.Graph.Imports, err = e.DB.ImportsOf(file.ID)
+			e.logErr("ImportsOf", err)
+			h.Graph.ImportedBy, err = e.DB.ImportedBy(file.ID)
+			e.logErr("ImportedBy", err)
 		}
 	}
 	return nil

@@ -4,12 +4,14 @@
 package show
 
 import (
+	"log/slog"
 	"strconv"
 	"strings"
 
 	"github.com/rafaelfragoso/columbus/internal/contract"
 	"github.com/rafaelfragoso/columbus/internal/extract"
 	"github.com/rafaelfragoso/columbus/internal/live"
+	"github.com/rafaelfragoso/columbus/internal/logging"
 	"github.com/rafaelfragoso/columbus/internal/store"
 )
 
@@ -21,9 +23,13 @@ type Shower struct {
 	DB       *store.DB
 	WorkDir  string
 	Registry *extract.Registry
+	// Logger records best-effort enrichment read failures at debug. nil = none.
+	Logger *slog.Logger
 }
 
 func (s *Shower) cache() *live.Cache { return live.New(s.WorkDir, s.Registry) }
+
+func (s *Shower) logErr(op string, err error) { logging.DebugErr(s.Logger, op, err) }
 
 // Symbol returns all definitions matching name, optionally narrowed to files
 // whose path contains `in`.
@@ -42,7 +48,8 @@ func (s *Shower) Symbol(name, in string, contextLines int) (SymbolResult, error)
 		rows = filtered
 	}
 	if len(rows) == 0 {
-		suggestions, _ := s.DB.SuggestSymbols(name, 5)
+		suggestions, err := s.DB.SuggestSymbols(name, 5)
+		s.logErr("SuggestSymbols", err)
 		return SymbolResult{}, notFound("symbol", name, suggestions)
 	}
 
@@ -65,8 +72,10 @@ func (s *Shower) Symbol(name, in string, contextLines int) (SymbolResult, error)
 			b.EndLine = sym.EndLine
 			b.Snippet = live.Snippet(cache.SourceLines(r.Path), sym.StartLine, sym.EndLine, contextLines)
 		}
-		b.Tests, _ = s.DB.TestsOf(r.FileID)
-		b.Memories = memoryRefs(s.DB, "symbol", r.Name)
+		tests, err := s.DB.TestsOf(r.FileID)
+		s.logErr("TestsOf", err)
+		b.Tests = tests
+		b.Memories = s.memoryRefs("symbol", r.Name)
 		blocks = append(blocks, b)
 	}
 	return SymbolResult{Query: name, In: in, Total: total, Capped: capped, Blocks: blocks}, nil
@@ -83,7 +92,8 @@ func (s *Shower) File(path string, contextLines int) (FileResult, error) {
 		if i := strings.LastIndexByte(path, '/'); i >= 0 {
 			base = path[i+1:]
 		}
-		suggestions, _ := s.DB.SuggestPaths(base, 5)
+		suggestions, err := s.DB.SuggestPaths(base, 5)
+		s.logErr("SuggestPaths", err)
 		return FileResult{}, notFound("file", path, suggestions)
 	}
 
@@ -102,16 +112,19 @@ func (s *Shower) File(path string, contextLines int) (FileResult, error) {
 		outline = append(outline, entry)
 	}
 
-	imports, _ := s.DB.ImportsOf(file.ID)
-	importedBy, _ := s.DB.ImportedBy(file.ID)
-	tests, _ := s.DB.TestsOf(file.ID)
+	imports, err := s.DB.ImportsOf(file.ID)
+	s.logErr("ImportsOf", err)
+	importedBy, err := s.DB.ImportedBy(file.ID)
+	s.logErr("ImportedBy", err)
+	tests, err := s.DB.TestsOf(file.ID)
+	s.logErr("TestsOf", err)
 	_ = contextLines
 
 	return FileResult{
 		Path: file.Path, Language: file.Language, Package: file.Package, Role: file.Role,
 		Outline: outline,
 		Imports: imports, ImportedBy: importedBy, Tests: tests,
-		Memories: memoryRefs(s.DB, "file", file.Path),
+		Memories: s.memoryRefs("file", file.Path),
 	}, nil
 }
 
@@ -149,8 +162,9 @@ func notFound(kind, ref string, suggestions []string) *contract.Error {
 	return e
 }
 
-func memoryRefs(db *store.DB, targetType, targetRef string) []MemoryRef {
-	mems, _ := db.MemoriesForTarget(targetType, targetRef)
+func (s *Shower) memoryRefs(targetType, targetRef string) []MemoryRef {
+	mems, err := s.DB.MemoriesForTarget(targetType, targetRef)
+	s.logErr("MemoriesForTarget", err)
 	if len(mems) == 0 {
 		return nil
 	}

@@ -30,7 +30,7 @@ func withShower(env *Env, cmdName string, fn func(*show.Shower) (render.Payload,
 	if err != nil {
 		return err
 	}
-	payload, err := fn(&show.Shower{DB: proj.DB, WorkDir: env.WorkDir, Registry: reg})
+	payload, err := fn(&show.Shower{DB: proj.DB, WorkDir: env.WorkDir, Registry: reg, Logger: proj.Logger})
 	if err != nil {
 		proj.Logger.Info(cmdName+" failed", "error", err.Error())
 		return err

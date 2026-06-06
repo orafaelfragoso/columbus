@@ -1,5 +1,10 @@
 # Columbus
 
+[![CI](https://github.com/rafaelfragoso/columbus/actions/workflows/ci.yml/badge.svg)](https://github.com/rafaelfragoso/columbus/actions/workflows/ci.yml)
+[![Release](https://github.com/rafaelfragoso/columbus/actions/workflows/release.yml/badge.svg)](https://github.com/rafaelfragoso/columbus/actions/workflows/release.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/rafaelfragoso/columbus.svg)](https://pkg.go.dev/github.com/rafaelfragoso/columbus)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A **local-only, deterministic code-context server** that a code agent calls as
 a tool. Columbus does exactly three things:
 
@@ -83,10 +88,11 @@ a grammar + `.scm` queries + an extension mapping — no core changes.
 ```sh
 make test       # go test -tags fts5 ./...
 make vet
+golangci-lint run ./...
 make cover
 ```
 
-See [PLAN.md](PLAN.md) for the full design.
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## License
 

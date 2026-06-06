@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -49,8 +50,8 @@ func TestBinaryUnknownCommandExit2(t *testing.T) {
 	}
 	bin := buildBinary(t)
 	err := exec.Command(bin, "definitely-not-a-command").Run()
-	ee, ok := err.(*exec.ExitError)
-	if !ok {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
 		t.Fatalf("expected exit error, got %v", err)
 	}
 	if ee.ExitCode() != 2 {

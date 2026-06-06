@@ -71,11 +71,40 @@ snapshot:
 
 changelog:
   sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([^)]+\))?!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([^)]+\))?!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\([^)]+\))?!?:.+$'
+      order: 2
+    - title: Refactoring
+      regexp: '^.*?refactor(\([^)]+\))?!?:.+$'
+      order: 3
+    - title: Documentation
+      regexp: '^.*?docs(\([^)]+\))?!?:.+$'
+      order: 4
+    - title: Tests
+      regexp: '^.*?test(\([^)]+\))?!?:.+$'
+      order: 5
+    - title: Build and CI
+      regexp: '^.*?(build|ci)(\([^)]+\))?!?:.+$'
+      order: 6
+    - title: Maintenance
+      regexp: '^.*?chore(\([^)]+\))?!?:.+$'
+      order: 7
+    - title: Reverts
+      regexp: '^.*?revert(\([^)]+\))?!?:.+$'
+      order: 8
+    - title: Other Changes
+      order: 999
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
+      - "^Merge pull request"
+      - "^Merge branch"
 
 # Homebrew tap. ripgrep is a declared dependency (the search fast-path);
 # ast-grep stays optional; git is assumed present.

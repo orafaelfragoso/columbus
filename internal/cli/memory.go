@@ -28,7 +28,7 @@ type exportConfirm struct {
 
 func (exportConfirm) CommandName() string { return "memory" }
 func (c exportConfirm) RenderText(w io.Writer, _ render.Options) error {
-	_, err := io.WriteString(w, "exported "+strconv.Itoa(c.Count)+" memorie(s) to "+c.Out+"\n")
+	_, err := io.WriteString(w, "exported "+strconv.Itoa(c.Count)+" memories to "+c.Out+"\n")
 	return err
 }
 func (c exportConfirm) RenderLLM(w io.Writer, _ render.Options) error {
@@ -329,11 +329,10 @@ func readImportInput(env *Env, args []string) ([]byte, error) {
 		}
 		return raw, nil
 	}
-	stdin, ok := env.Stdin.(io.Reader)
-	if !ok || stdin == nil {
+	if env.Stdin == nil {
 		return nil, contract.Errorf(contract.CodeUsage, "no import file given and no stdin available")
 	}
-	raw, err := io.ReadAll(stdin)
+	raw, err := io.ReadAll(env.Stdin)
 	if err != nil {
 		return nil, &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
 	}

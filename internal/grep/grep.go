@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,7 +61,8 @@ func (r ripgrep) Search(workDir string, tokens []string, allow map[string]bool, 
 	out, err := cmd.Output()
 	if err != nil {
 		// rg exits 1 when there are no matches; that is not an error.
-		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 {
 			return nil, nil
 		}
 		return nil, err

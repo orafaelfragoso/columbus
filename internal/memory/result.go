@@ -99,7 +99,7 @@ type ListResult struct {
 func (ListResult) CommandName() string { return "memory" }
 
 func (r ListResult) RenderText(w io.Writer, _ render.Options) error {
-	fmt.Fprintf(w, "%d memorie(s)\n", r.Total)
+	fmt.Fprintf(w, "%d memories\n", r.Total)
 	for _, m := range r.Memories {
 		fmt.Fprintf(w, "  %s [%s] %s\n", m.ID, m.Kind, m.Title)
 	}
@@ -168,7 +168,7 @@ func (r ValidateResult) RenderText(w io.Writer, _ render.Options) error {
 			fmt.Fprintf(w, "    %s\n", warn)
 		}
 	}
-	fmt.Fprintf(w, "\n%d memorie(s); %d with evidence drift, %d with unresolved links\n",
+	fmt.Fprintf(w, "\n%d memories; %d with evidence drift, %d with unresolved links\n",
 		r.Total, r.Drifted, r.Unresolved)
 	return nil
 }

@@ -1,0 +1,36 @@
+# golangci-lint v2 configuration.
+# cgo and the fts5 build tag are always on, so the linter must see them too.
+version: "2"
+
+run:
+  build-tags:
+    - fts5
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - misspell
+    - unconvert
+    - usestdlibvars
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      # Test files exercise error paths and table-driven cases; relax a few noisy checks.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - unparam
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/rafaelfragoso/columbus

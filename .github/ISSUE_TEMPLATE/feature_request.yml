@@ -1,0 +1,64 @@
+name: Feature request
+description: Propose a focused improvement to indexing, search, memory, or CLI behavior.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Columbus intentionally does exactly three things: index, search, and memory. Please keep requests inside that boundary.
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This request fits Columbus' index, search, or memory responsibilities.
+          required: true
+        - label: This request does not add LLM calls, agent orchestration, hooks, guardrails, or policy decisions.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user-facing problem would this solve?
+      placeholder: When I use Columbus to..., I need..., because...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful behavior change.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Index
+        - Search
+        - Memory
+        - CLI output
+        - Install or release
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Example CLI or output
+      description: Show the command or output shape you expect, if applicable.
+      render: shell
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or smaller alternatives have you considered?

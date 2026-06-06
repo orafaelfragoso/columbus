@@ -5,6 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/rafaelfragoso/columbus/internal/extract"
+	"github.com/rafaelfragoso/columbus/internal/grep"
 	"github.com/rafaelfragoso/columbus/internal/search"
 )
 
@@ -30,7 +32,16 @@ func newSearchCmd(env *Env) *cobra.Command {
 			}
 			defer proj.DB.Close()
 
-			engine := &search.Engine{DB: proj.DB}
+			reg, err := extract.NewRegistry()
+			if err != nil {
+				return err
+			}
+			engine := &search.Engine{
+				DB:       proj.DB,
+				WorkDir:  env.WorkDir,
+				Registry: reg,
+				Searcher: grep.New(),
+			}
 			res, err := engine.Search(search.Query{
 				Text:         strings.Join(args, " "),
 				Kind:         kind,

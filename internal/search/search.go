@@ -1,7 +1,8 @@
-// Package search runs the deterministic two-source search pipeline. On the
-// metadata path it generates candidates from FTS5 (over metadata only), then
-// scores them with a single deterministic feature function and enriches the
-// top results with 1-hop graph edges and linked memories.
+// Package search runs the deterministic two-source search pipeline: FTS5 over
+// metadata (in-DB) and live content matches over the working tree (ripgrep
+// fast-path or pure-Go fallback). Both feed a single deterministic feature
+// function; the top results are enriched with live line ranges/snippets, 1-hop
+// graph edges and linked memories.
 package search
 
 import (
@@ -10,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/rafaelfragoso/columbus/internal/contract"
+	"github.com/rafaelfragoso/columbus/internal/extract"
+	"github.com/rafaelfragoso/columbus/internal/grep"
 	"github.com/rafaelfragoso/columbus/internal/store"
 )
 
@@ -56,12 +59,43 @@ type Query struct {
 	Graph        bool
 }
 
-// Engine runs searches against a store.
+// Engine runs searches against a store. When WorkDir, Registry and Searcher are
+// set the live content path is enabled; otherwise search is metadata-only.
 type Engine struct {
-	DB *store.DB
+	DB       *store.DB
+	WorkDir  string
+	Registry *extract.Registry
+	Searcher grep.Searcher
 }
 
-const candidateCap = 200
+const (
+	candidateCap = 200
+	contentCap   = 500
+)
+
+// codeCand is an intermediate candidate accumulating signals from both sources
+// before a single scoring pass.
+type codeCand struct {
+	grain     string
+	name      string
+	kind      string
+	container string
+	signature string
+	path      string
+	pkg       string
+	role      string
+	exported  bool
+	fileID    int64
+
+	importedByCount int
+	hasTests        bool
+	mems            []store.MemoryBrief
+	contentDensity  float64
+}
+
+func candKey(grain, path, container, name string) string {
+	return grain + "\x00" + path + "\x00" + container + "\x00" + name
+}
 
 // Search executes the query and returns ranked, enriched results.
 func (e *Engine) Search(q Query) (SearchResult, error) {
@@ -71,17 +105,16 @@ func (e *Engine) Search(q Query) (SearchResult, error) {
 	if q.Limit <= 0 {
 		q.Limit = 20
 	}
+	if q.ContextLines < 0 {
+		q.ContextLines = 0
+	}
 
 	meta, err := e.DB.Meta().Get()
 	if err != nil {
 		return SearchResult{}, err
 	}
 	if meta.LastIndexedAt == "" {
-		return SearchResult{}, &contract.Error{
-			Code:    contract.CodeIndexMissing,
-			Message: "no index found",
-			Hint:    "run columbus index",
-		}
+		return SearchResult{}, &contract.Error{Code: contract.CodeIndexMissing, Message: "no index found", Hint: "run columbus index"}
 	}
 
 	tokens := tokenize(q.Text)
@@ -90,104 +123,201 @@ func (e *Engine) Search(q Query) (SearchResult, error) {
 		return SearchResult{}, contract.Errorf(contract.CodeUsage, "query has no searchable terms")
 	}
 
-	var hits []Hit
+	res := SearchResult{Query: q.Text, Kind: q.Kind.String()}
+
 	if q.Kind == KindAll || q.Kind == KindCode {
-		codeHits, err := e.codeHits(tokens, match)
-		if err != nil {
+		cands := map[string]*codeCand{}
+		if err := e.metadataCandidates(match, cands); err != nil {
 			return SearchResult{}, err
 		}
-		hits = append(hits, codeHits...)
+		live := e.liveEnabled()
+		if live {
+			if err := e.contentCandidates(tokens, cands); err != nil {
+				return SearchResult{}, err
+			}
+		} else {
+			res.Warnings = append(res.Warnings, "live content search disabled (metadata-only)")
+		}
+		for _, c := range cands {
+			res.Hits = append(res.Hits, c.toHit(tokens))
+		}
 	}
+
 	if q.Kind == KindAll || q.Kind == KindMemory {
 		memHits, err := e.memoryHits(match)
 		if err != nil {
 			return SearchResult{}, err
 		}
-		hits = append(hits, memHits...)
+		res.Hits = append(res.Hits, memHits...)
 	}
 
-	sortHits(hits)
-	if len(hits) > q.Limit {
-		hits = hits[:q.Limit]
+	sortHits(res.Hits)
+	if len(res.Hits) > q.Limit {
+		res.Hits = res.Hits[:q.Limit]
 	}
-	if err := e.enrich(hits, q.Graph); err != nil {
+
+	if e.liveEnabled() {
+		e.resolveLive(res.Hits, q.ContextLines)
+	}
+	if err := e.enrichGraph(res.Hits, q.Graph); err != nil {
 		return SearchResult{}, err
 	}
 
-	return SearchResult{
-		Query: q.Text,
-		Kind:  q.Kind.String(),
-		Total: len(hits),
-		Hits:  hits,
-	}, nil
+	res.Total = len(res.Hits)
+	return res, nil
 }
 
-// codeHits generates and scores code candidates (symbols + files).
-func (e *Engine) codeHits(tokens []string, match string) ([]Hit, error) {
-	candidates, err := e.DB.SearchCodeFTS(match, candidateCap)
+func (e *Engine) liveEnabled() bool {
+	return e.WorkDir != "" && e.Registry != nil && e.Searcher != nil
+}
+
+// metadataCandidates generates candidates from FTS over metadata.
+func (e *Engine) metadataCandidates(match string, cands map[string]*codeCand) error {
+	hits, err := e.DB.SearchCodeFTS(match, candidateCap)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	seen := map[string]bool{}
-	var hits []Hit
-	for _, c := range candidates {
-		key := c.Grain + ":" + fmt.Sprint(c.RefID)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-
-		hit, ok, err := e.codeHit(tokens, c)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			hits = append(hits, hit)
+	for _, h := range hits {
+		if h.Grain == "symbol" {
+			sym, ok, err := e.DB.SymbolByID(h.RefID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				continue
+			}
+			c := e.symbolCand(sym)
+			cands[candKey("symbol", c.path, c.container, c.name)] = c
+		} else {
+			file, ok, err := e.DB.FileByID(h.RefID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				continue
+			}
+			c := e.fileCand(file)
+			cands[candKey("file", c.path, "", c.name)] = c
 		}
 	}
-	return hits, nil
+	return nil
 }
 
-func (e *Engine) codeHit(tokens []string, c store.CodeHit) (Hit, bool, error) {
-	if c.Grain == "symbol" {
-		sym, ok, err := e.DB.SymbolByID(c.RefID)
-		if err != nil || !ok {
-			return Hit{}, false, err
-		}
-		count, _ := e.DB.ImportedByCount(sym.FileID)
-		tests, _ := e.DB.TestsOf(sym.FileID)
-		mems, _ := e.DB.MemoriesForTarget("symbol", sym.Name)
-		sig := signals{
-			name: sym.Name, signature: sym.Signature, path: sym.Path, role: sym.Role,
-			importedByCount: count, hasTests: len(tests) > 0,
-			hasMemory: len(mems) > 0, hasFailureMemory: hasFailure(mems),
-		}
-		return Hit{
-			Grain: "symbol", Name: sym.Name, SymbolKind: sym.Kind, Container: sym.Container,
-			Signature: sym.Signature, Path: sym.Path, Package: sym.Package, Role: sym.Role,
-			Exported: sym.Exported,
-			Score:    round(score(tokens, sig)), Why: why(tokens, sig), RiskLevel: riskLevel(sig),
-			Memories: toMemoryRefs(mems),
-		}, true, nil
+func (e *Engine) symbolCand(sym store.SymbolRow) *codeCand {
+	count, _ := e.DB.ImportedByCount(sym.FileID)
+	tests, _ := e.DB.TestsOf(sym.FileID)
+	mems, _ := e.DB.MemoriesForTarget("symbol", sym.Name)
+	return &codeCand{
+		grain: "symbol", name: sym.Name, kind: sym.Kind, container: sym.Container,
+		signature: sym.Signature, path: sym.Path, pkg: sym.Package, role: sym.Role,
+		exported: sym.Exported, fileID: sym.FileID,
+		importedByCount: count, hasTests: len(tests) > 0, mems: mems,
 	}
+}
 
-	file, ok, err := e.DB.FileByID(c.RefID)
-	if err != nil || !ok {
-		return Hit{}, false, err
-	}
+func (e *Engine) fileCand(file store.FileRow) *codeCand {
 	count, _ := e.DB.ImportedByCount(file.ID)
 	tests, _ := e.DB.TestsOf(file.ID)
 	mems, _ := e.DB.MemoriesForTarget("file", file.Path)
+	return &codeCand{
+		grain: "file", name: baseName(file.Path), path: file.Path, pkg: file.Package, role: file.Role,
+		fileID: file.ID, importedByCount: count, hasTests: len(tests) > 0, mems: mems,
+	}
+}
+
+// contentCandidates greps the working tree and folds content-match density into
+// existing candidates (or creates new ones for matches inside symbols/files not
+// surfaced by metadata).
+func (e *Engine) contentCandidates(tokens []string, cands map[string]*codeCand) error {
+	files, err := e.DB.AllFiles()
+	if err != nil {
+		return err
+	}
+	allow := make(map[string]bool, len(files))
+	byPath := make(map[string]store.FileRow, len(files))
+	for _, f := range files {
+		allow[f.Path] = true
+		byPath[f.Path] = f
+	}
+
+	hits, err := e.Searcher.Search(e.WorkDir, tokens, allow, contentCap)
+	if err != nil {
+		return err
+	}
+
+	cache := newFileCache(e.WorkDir, e.Registry)
+	type agg struct {
+		count int
+		sym   extract.Symbol
+		file  bool
+	}
+	counts := map[string]*agg{}
+	for _, h := range hits {
+		syms := cache.symbols(h.Path)
+		if s, ok := enclosing(syms, h.Line); ok {
+			key := candKey("symbol", h.Path, s.Container, s.Name)
+			a := counts[key]
+			if a == nil {
+				a = &agg{sym: s}
+				counts[key] = a
+			}
+			a.count++
+		} else {
+			key := candKey("file", h.Path, "", baseName(h.Path))
+			a := counts[key]
+			if a == nil {
+				a = &agg{file: true}
+				counts[key] = a
+			}
+			a.count++
+		}
+	}
+
+	for key, a := range counts {
+		density := clamp01(float64(a.count) / 3.0)
+		if c, ok := cands[key]; ok {
+			c.contentDensity = density
+			continue
+		}
+		f, ok := byPath[pathOfKey(key)]
+		if !ok {
+			continue
+		}
+		if a.file {
+			c := e.fileCand(f)
+			c.contentDensity = density
+			cands[key] = c
+		} else {
+			mems, _ := e.DB.MemoriesForTarget("symbol", a.sym.Name)
+			count, _ := e.DB.ImportedByCount(f.ID)
+			tests, _ := e.DB.TestsOf(f.ID)
+			cands[key] = &codeCand{
+				grain: "symbol", name: a.sym.Name, kind: string(a.sym.Kind), container: a.sym.Container,
+				signature: a.sym.Signature, path: f.Path, pkg: f.Package, role: f.Role,
+				exported: a.sym.Exported, fileID: f.ID,
+				importedByCount: count, hasTests: len(tests) > 0, mems: mems, contentDensity: density,
+			}
+		}
+	}
+	return nil
+}
+
+func (c *codeCand) toHit(tokens []string) Hit {
 	sig := signals{
-		name: baseName(file.Path), path: file.Path, role: file.Role,
-		importedByCount: count, hasTests: len(tests) > 0,
-		hasMemory: len(mems) > 0, hasFailureMemory: hasFailure(mems),
+		name: c.name, signature: c.signature, path: c.path, role: c.role,
+		importedByCount: c.importedByCount, hasTests: c.hasTests,
+		hasMemory: len(c.mems) > 0, hasFailureMemory: hasFailure(c.mems),
+		contentDensity: c.contentDensity,
+	}
+	if c.grain == "file" {
+		sig.name = c.name
 	}
 	return Hit{
-		Grain: "file", Name: baseName(file.Path), Path: file.Path, Package: file.Package, Role: file.Role,
+		Grain: c.grain, Name: c.name, SymbolKind: c.kind, Container: c.container,
+		Signature: c.signature, Path: c.path, Package: c.pkg, Role: c.role, Exported: c.exported,
 		Score: round(score(tokens, sig)), Why: why(tokens, sig), RiskLevel: riskLevel(sig),
-		Memories: toMemoryRefs(mems),
-	}, true, nil
+		Memories: toMemoryRefs(c.mems),
+	}
 }
 
 func (e *Engine) memoryHits(match string) ([]Hit, error) {
@@ -217,8 +347,27 @@ func (e *Engine) memoryHits(match string) ([]Hit, error) {
 	return hits, nil
 }
 
-// enrich populates graph edges for the final result set.
-func (e *Engine) enrich(hits []Hit, graph bool) error {
+// resolveLive fills in current line ranges and snippets by re-parsing the
+// working tree (the stored line numbers are never trusted as truth).
+func (e *Engine) resolveLive(hits []Hit, ctx int) {
+	cache := newFileCache(e.WorkDir, e.Registry)
+	for i := range hits {
+		h := &hits[i]
+		if h.Grain != "symbol" || h.Path == "" {
+			continue
+		}
+		sym, ok := cache.findSymbol(h.Path, h.Name, h.Container, h.SymbolKind)
+		if !ok {
+			continue
+		}
+		h.StartLine = sym.StartLine
+		h.EndLine = sym.EndLine
+		h.Snippet = snippet(cache.sourceLines(h.Path), sym.StartLine, sym.EndLine, ctx)
+	}
+}
+
+// enrichGraph populates 1-hop graph edges for the final result set.
+func (e *Engine) enrichGraph(hits []Hit, graph bool) error {
 	for i := range hits {
 		h := &hits[i]
 		if h.Grain == "memory" || h.Path == "" {
@@ -234,10 +383,8 @@ func (e *Engine) enrich(hits []Hit, graph bool) error {
 		tests, _ := e.DB.TestsOf(file.ID)
 		h.Graph.Tests = tests
 		if graph {
-			imports, _ := e.DB.ImportsOf(file.ID)
-			importedBy, _ := e.DB.ImportedBy(file.ID)
-			h.Graph.Imports = imports
-			h.Graph.ImportedBy = importedBy
+			h.Graph.Imports, _ = e.DB.ImportsOf(file.ID)
+			h.Graph.ImportedBy, _ = e.DB.ImportedBy(file.ID)
 		}
 	}
 	return nil
@@ -255,9 +402,8 @@ func sortHits(hits []Hit) {
 	})
 }
 
-// buildFTSMatch builds a permissive FTS5 MATCH expression: each token is quoted
-// and prefix-matched, joined with OR. Quoting neutralizes FTS operators in user
-// input.
+// buildFTSMatch builds a permissive prefix-OR MATCH expression. Quoting each
+// token neutralizes FTS operators in user input.
 func buildFTSMatch(tokens []string) string {
 	var parts []string
 	for _, t := range tokens {
@@ -287,11 +433,21 @@ func toMemoryRefs(mems []store.MemoryBrief) []MemoryRef {
 }
 
 func memID(id int64) string { return fmt.Sprintf("mem_%03d", id) }
+
 func baseName(p string) string {
 	if i := strings.LastIndexByte(p, '/'); i >= 0 {
 		return p[i+1:]
 	}
 	return p
+}
+
+// pathOfKey extracts the path component from a candidate key.
+func pathOfKey(key string) string {
+	parts := strings.Split(key, "\x00")
+	if len(parts) >= 2 {
+		return parts[1]
+	}
+	return ""
 }
 
 func round(v float64) float64 {

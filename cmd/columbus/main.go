@@ -23,6 +23,7 @@ func main() {
 	env := cli.Env{
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
+		Stdin:   os.Stdin,
 		Clock:   clock.System{},
 		IDs:     ids.Crypto{},
 		WorkDir: wd,

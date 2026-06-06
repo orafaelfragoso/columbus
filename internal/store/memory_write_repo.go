@@ -12,6 +12,13 @@ func (t *Tx) NextMemSeq() (int64, error) {
 	return n, nil
 }
 
+// SetMemSeqAtLeast raises the memory id counter to at least n (used after a
+// --preserve-ids import so future ids don't collide with restored ones).
+func (t *Tx) SetMemSeqAtLeast(n int64) error {
+	_, err := t.tx.Exec(`UPDATE index_meta SET mem_seq = MAX(mem_seq, ?) WHERE id = 1`, n)
+	return storeErr(err)
+}
+
 // InsertMemory writes a memory row.
 func (t *Tx) InsertMemory(id int64, kind, title, body, createdAt, updatedAt string) error {
 	_, err := t.tx.Exec(`INSERT INTO memories (id, kind, title, body, created_at, updated_at)

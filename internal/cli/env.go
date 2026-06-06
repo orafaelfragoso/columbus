@@ -22,6 +22,7 @@ type BuildInfo struct {
 type Env struct {
 	Stdout io.Writer
 	Stderr io.Writer
+	Stdin  io.Reader
 
 	Clock clock.Clock
 	IDs   ids.Source

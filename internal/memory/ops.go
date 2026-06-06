@@ -194,12 +194,16 @@ func (m *Manager) Link(idStr string, links []LinkSpec) (MemoryResult, error) {
 	} else if !ok {
 		return MemoryResult{}, notFound(idStr)
 	}
+	// Resolve link warnings before the transaction: DB reads cannot run inside
+	// WithTx (the writer holds the single connection).
 	var warnings []string
+	for _, l := range links {
+		if w := m.resolveLinkWarning(l); w != "" {
+			warnings = append(warnings, w)
+		}
+	}
 	err = m.DB.WithTx(func(tx *store.Tx) error {
 		for _, l := range links {
-			if w := m.resolveLinkWarning(l); w != "" {
-				warnings = append(warnings, w)
-			}
 			if err := tx.AddLink(id, l.Type, l.Ref); err != nil {
 				return err
 			}

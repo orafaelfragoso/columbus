@@ -179,6 +179,21 @@ func (r ValidateResult) RenderLLM(w io.Writer, _ render.Options) error {
 	return nil
 }
 
+func (r ImportResult) RenderText(w io.Writer, _ render.Options) error {
+	mode := "reassigned ids"
+	if r.PreserveIDs {
+		mode = "preserved ids"
+	}
+	fmt.Fprintf(w, "imported %d, skipped %d of %d (%s)\n", r.Imported, r.Skipped, r.Total, mode)
+	return nil
+}
+
+func (r ImportResult) RenderLLM(w io.Writer, _ render.Options) error {
+	fmt.Fprintf(w, "# Memory import\n\n- imported: %d\n- skipped: %d\n- total: %d\n- preserve_ids: %t\n",
+		r.Imported, r.Skipped, r.Total, r.PreserveIDs)
+	return nil
+}
+
 func resultFrom(m store.Memory) MemoryResult {
 	out := MemoryResult{
 		ID: FormatID(m.ID), Kind: m.Kind, Title: m.Title, Body: m.Body,

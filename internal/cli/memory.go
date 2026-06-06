@@ -1,13 +1,34 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/rafaelfragoso/columbus/internal/contract"
 	"github.com/rafaelfragoso/columbus/internal/memory"
 	"github.com/rafaelfragoso/columbus/internal/render"
 )
+
+// exportConfirm is a small payload confirming a file export.
+type exportConfirm struct {
+	Out   string `json:"out"`
+	Count int    `json:"count"`
+}
+
+func (exportConfirm) CommandName() string { return "memory" }
+func (c exportConfirm) RenderText(w io.Writer, _ render.Options) error {
+	_, err := io.WriteString(w, "exported "+strconv.Itoa(c.Count)+" memorie(s) to "+c.Out+"\n")
+	return err
+}
+func (c exportConfirm) RenderLLM(w io.Writer, _ render.Options) error {
+	return c.RenderText(w, render.Options{})
+}
 
 func newMemoryCmd(env *Env) *cobra.Command {
 	cmd := &cobra.Command{
@@ -23,6 +44,8 @@ func newMemoryCmd(env *Env) *cobra.Command {
 		newMemoryListCmd(env),
 		newMemorySearchCmd(env),
 		newMemoryValidateCmd(env),
+		newMemoryExportCmd(env),
+		newMemoryImportCmd(env),
 	)
 	return cmd
 }
@@ -223,4 +246,88 @@ func newMemoryValidateCmd(env *Env) *cobra.Command {
 			})
 		},
 	}
+}
+
+func newMemoryExportCmd(env *Env) *cobra.Command {
+	var kind, tag, out string
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export memories as a portable JSON document (stdout by default)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			proj, err := env.openProject()
+			if err != nil {
+				return err
+			}
+			defer proj.DB.Close()
+			mgr := &memory.Manager{DB: proj.DB, Clock: env.Clock, WorkDir: env.WorkDir}
+			doc, err := mgr.Export(kind, tag)
+			if err != nil {
+				return err
+			}
+
+			var buf bytes.Buffer
+			enc := json.NewEncoder(&buf)
+			enc.SetEscapeHTML(false)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(doc); err != nil {
+				return &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
+			}
+			if out == "" {
+				_, werr := env.Stdout.Write(buf.Bytes())
+				return werr
+			}
+			if err := os.WriteFile(out, buf.Bytes(), 0o644); err != nil {
+				return &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
+			}
+			return renderResult(env, exportConfirm{Out: out, Count: len(doc.Memories)})
+		},
+	}
+	cmd.Flags().StringVar(&kind, "kind", "", "filter by kind")
+	cmd.Flags().StringVar(&tag, "tag", "", "filter by tag")
+	cmd.Flags().StringVar(&out, "out", "", "write to a file instead of stdout")
+	return cmd
+}
+
+func newMemoryImportCmd(env *Env) *cobra.Command {
+	var preserveIDs bool
+	cmd := &cobra.Command{
+		Use:   "import [path]",
+		Short: "Import memories from a JSON document (path or stdin)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			raw, err := readImportInput(env, args)
+			if err != nil {
+				return err
+			}
+			var doc memory.ExportDoc
+			if err := json.Unmarshal(raw, &doc); err != nil {
+				return &contract.Error{Code: contract.CodeConfigInvalid, Message: "invalid import document: " + err.Error()}
+			}
+			return withManager(env, func(m *memory.Manager) (render.Payload, error) {
+				return m.Import(doc, preserveIDs)
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&preserveIDs, "preserve-ids", false, "restore original ids (errors on collision)")
+	return cmd
+}
+
+func readImportInput(env *Env, args []string) ([]byte, error) {
+	if len(args) == 1 {
+		raw, err := os.ReadFile(args[0])
+		if err != nil {
+			return nil, &contract.Error{Code: contract.CodeNotFound, Message: "cannot read import file: " + err.Error()}
+		}
+		return raw, nil
+	}
+	stdin, ok := env.Stdin.(io.Reader)
+	if !ok || stdin == nil {
+		return nil, contract.Errorf(contract.CodeUsage, "no import file given and no stdin available")
+	}
+	raw, err := io.ReadAll(stdin)
+	if err != nil {
+		return nil, &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
+	}
+	return raw, nil
 }

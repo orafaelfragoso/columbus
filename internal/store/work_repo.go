@@ -71,6 +71,39 @@ func (d *DB) workRefs(ownerType string, ownerID int64) ([]WorkRef, error) {
 	return out, rows.Err()
 }
 
+// WorkOwner is an epic or task that references some target (reverse lookup).
+type WorkOwner struct {
+	OwnerType string // "epic" | "task"
+	OwnerID   int64
+	Title     string
+	Status    string
+}
+
+// WorkForTarget returns the epics and tasks that reference a given target
+// (exact target_type + target_ref match), ordered deterministically.
+func (d *DB) WorkForTarget(targetType, targetRef string) ([]WorkOwner, error) {
+	rows, err := d.db.Query(`SELECT r.owner_type, r.owner_id,
+			COALESCE(e.title, t.title, ''), COALESCE(e.status, t.status, '')
+		FROM work_refs r
+		LEFT JOIN epics e ON r.owner_type = 'epic' AND e.id = r.owner_id
+		LEFT JOIN tasks t ON r.owner_type = 'task' AND t.id = r.owner_id
+		WHERE r.target_type = ? AND r.target_ref = ?
+		ORDER BY r.owner_type, r.owner_id`, targetType, targetRef)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	defer rows.Close()
+	var out []WorkOwner
+	for rows.Next() {
+		var o WorkOwner
+		if err := rows.Scan(&o.OwnerType, &o.OwnerID, &o.Title, &o.Status); err != nil {
+			return nil, storeErr(err)
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
 // HasFilesUnderDir reports whether at least one indexed file lives under the
 // given directory prefix (whole-segment match; a trailing slash is tolerated).
 func (d *DB) HasFilesUnderDir(dir string) (bool, error) {

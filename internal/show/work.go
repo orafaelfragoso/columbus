@@ -242,3 +242,32 @@ func parseWorkID(id, prefix, label string) (int64, error) {
 }
 
 func formatWorkID(prefix string, id int64) string { return fmt.Sprintf("%s%03d", prefix, id) }
+
+// WorkRefBack is an epic or task that references the entity being shown
+// (reverse lookup: "what work touches this file/symbol/memory?").
+type WorkRefBack struct {
+	Kind   string `json:"kind"`
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+// workRefsTo returns the epics/tasks that reference a given target.
+func (s *Shower) workRefsTo(targetType, ref string) []WorkRefBack {
+	owners, err := s.DB.WorkForTarget(targetType, ref)
+	s.logErr("WorkForTarget", err)
+	if len(owners) == 0 {
+		return nil
+	}
+	out := make([]WorkRefBack, len(owners))
+	for i, o := range owners {
+		out[i] = WorkRefBack{Kind: o.OwnerType, ID: formatWorkID(o.OwnerType+"_", o.OwnerID), Title: o.Title, Status: o.Status}
+	}
+	return out
+}
+
+func renderWork(w io.Writer, work []WorkRefBack) {
+	for _, b := range work {
+		fmt.Fprintf(w, "%s %s [%s]: %s\n", b.Kind, b.ID, b.Status, b.Title)
+	}
+}

@@ -102,6 +102,31 @@ func TestShowTaskDetail(t *testing.T) {
 	}
 }
 
+func TestShowFileListsReverseWork(t *testing.T) {
+	s := buildShower(t, map[string]string{"a.go": "package a\n\nfunc F() {}\n"})
+	err := s.DB.WithTx(func(tx *store.Tx) error {
+		eid, e := tx.NextEpicSeq()
+		if e != nil {
+			return e
+		}
+		if e = tx.InsertEpic(eid, "touches a.go", "", "in_progress", "t0", "t0"); e != nil {
+			return e
+		}
+		return tx.AddWorkRef("epic", eid, "file", "a.go")
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	res, err := s.File("a.go", 0)
+	if err != nil {
+		t.Fatalf("File: %v", err)
+	}
+	if len(res.Work) != 1 || res.Work[0].Kind != "epic" || res.Work[0].ID != "epic_001" {
+		t.Fatalf("reverse work = %+v", res.Work)
+	}
+}
+
 func TestShowEpicNotFound(t *testing.T) {
 	s := buildShower(t, map[string]string{"a.go": "package a\n"})
 	_, err := s.Epic("epic_404")

@@ -36,6 +36,48 @@ func TestWorkRefsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestWorkForTarget(t *testing.T) {
+	db := openTemp(t)
+	epicID := seedEpic(t, db, "epic ref")
+
+	var taskID int64
+	err := db.WithTx(func(tx *Tx) error {
+		var e error
+		if taskID, e = tx.NextTaskSeq(); e != nil {
+			return e
+		}
+		if e = tx.InsertTask(taskID, epicID, "task ref", "", "in_progress", "t0", "t0"); e != nil {
+			return e
+		}
+		if e = tx.AddWorkRef("epic", epicID, "file", "internal/a.go"); e != nil {
+			return e
+		}
+		if e = tx.AddWorkRef("task", taskID, "file", "internal/a.go"); e != nil {
+			return e
+		}
+		// A different target must not show up.
+		return tx.AddWorkRef("task", taskID, "symbol", "Foo")
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	owners, err := db.WorkForTarget("file", "internal/a.go")
+	if err != nil {
+		t.Fatalf("WorkForTarget: %v", err)
+	}
+	if len(owners) != 2 {
+		t.Fatalf("owners = %+v, want 2", owners)
+	}
+	// Ordered epic before task.
+	if owners[0].OwnerType != "epic" || owners[0].Title != "epic ref" {
+		t.Fatalf("owners[0] = %+v", owners[0])
+	}
+	if owners[1].OwnerType != "task" || owners[1].Status != "in_progress" {
+		t.Fatalf("owners[1] = %+v", owners[1])
+	}
+}
+
 func TestHasFilesUnderDir(t *testing.T) {
 	db := openTemp(t)
 	if err := db.WithTx(func(tx *Tx) error {

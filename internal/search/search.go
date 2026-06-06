@@ -13,6 +13,7 @@ import (
 	"github.com/rafaelfragoso/columbus/internal/contract"
 	"github.com/rafaelfragoso/columbus/internal/extract"
 	"github.com/rafaelfragoso/columbus/internal/grep"
+	"github.com/rafaelfragoso/columbus/internal/live"
 	"github.com/rafaelfragoso/columbus/internal/store"
 )
 
@@ -245,7 +246,7 @@ func (e *Engine) contentCandidates(tokens []string, cands map[string]*codeCand) 
 		return err
 	}
 
-	cache := newFileCache(e.WorkDir, e.Registry)
+	cache := live.New(e.WorkDir, e.Registry)
 	type agg struct {
 		count int
 		sym   extract.Symbol
@@ -253,8 +254,8 @@ func (e *Engine) contentCandidates(tokens []string, cands map[string]*codeCand) 
 	}
 	counts := map[string]*agg{}
 	for _, h := range hits {
-		syms := cache.symbols(h.Path)
-		if s, ok := enclosing(syms, h.Line); ok {
+		syms := cache.Symbols(h.Path)
+		if s, ok := live.Enclosing(syms, h.Line); ok {
 			key := candKey("symbol", h.Path, s.Container, s.Name)
 			a := counts[key]
 			if a == nil {
@@ -350,19 +351,19 @@ func (e *Engine) memoryHits(match string) ([]Hit, error) {
 // resolveLive fills in current line ranges and snippets by re-parsing the
 // working tree (the stored line numbers are never trusted as truth).
 func (e *Engine) resolveLive(hits []Hit, ctx int) {
-	cache := newFileCache(e.WorkDir, e.Registry)
+	cache := live.New(e.WorkDir, e.Registry)
 	for i := range hits {
 		h := &hits[i]
 		if h.Grain != "symbol" || h.Path == "" {
 			continue
 		}
-		sym, ok := cache.findSymbol(h.Path, h.Name, h.Container, h.SymbolKind)
+		sym, ok := cache.FindSymbol(h.Path, h.Name, h.Container, h.SymbolKind)
 		if !ok {
 			continue
 		}
 		h.StartLine = sym.StartLine
 		h.EndLine = sym.EndLine
-		h.Snippet = snippet(cache.sourceLines(h.Path), sym.StartLine, sym.EndLine, ctx)
+		h.Snippet = live.Snippet(cache.SourceLines(h.Path), sym.StartLine, sym.EndLine, ctx)
 	}
 }
 

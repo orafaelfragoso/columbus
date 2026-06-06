@@ -11,8 +11,10 @@ import (
 	"github.com/rafaelfragoso/columbus/internal/store"
 )
 
-// ExportSchemaVersion is the version of the export document format.
-const ExportSchemaVersion = 1
+// ExportSchemaVersion is the version of the export document format. v2 added
+// the structured-memory entities (epics and tasks) to the unified knowledge
+// document; v1 documents (memories only) still import.
+const ExportSchemaVersion = 2
 
 // ExportEvidence is a portable evidence anchor (keeps the creation blob oid so
 // drift detection survives a restore).
@@ -42,14 +44,17 @@ type ExportRecord struct {
 	UpdatedAt string           `json:"updated_at,omitempty"`
 }
 
-// ExportDoc is the schema-versioned export document.
+// ExportDoc is the schema-versioned unified knowledge document.
 type ExportDoc struct {
 	SchemaVersion int            `json:"schema_version"`
 	Memories      []ExportRecord `json:"memories"`
+	Epics         []ExportEpic   `json:"epics,omitempty"`
+	Tasks         []ExportTask   `json:"tasks,omitempty"`
 }
 
-// Export gathers memories (optionally filtered by kind/tag) into a portable,
-// schema-versioned document.
+// Export gathers memories (optionally filtered by kind/tag) plus all epics and
+// tasks into a portable, schema-versioned knowledge document. The kind/tag
+// filters apply only to memories; epics and tasks are always exported in full.
 func (m *Manager) Export(kind, tag string) (ExportDoc, error) {
 	if kind != "" && !validKind(kind) {
 		return ExportDoc{}, &contract.Error{Code: contract.CodeInvalidKind, Message: "unknown memory kind: " + kind}
@@ -69,6 +74,12 @@ func (m *Manager) Export(kind, tag string) (ExportDoc, error) {
 		}
 		doc.Memories = append(doc.Memories, exportRecordFrom(full))
 	}
+	if doc.Epics, err = m.exportEpics(); err != nil {
+		return ExportDoc{}, err
+	}
+	if doc.Tasks, err = m.exportTasks(); err != nil {
+		return ExportDoc{}, err
+	}
 	return doc, nil
 }
 
@@ -82,54 +93,47 @@ type ImportResult struct {
 
 func (ImportResult) CommandName() string { return "memory" }
 
-// Import merges an export document. Default mode reassigns fresh local ids and
-// skips content-duplicate records (idempotent). preserveIDs restores original
-// ids into an empty/compatible store and errors on id collision.
+// Import merges a unified knowledge document. Default mode reassigns fresh
+// local ids (deduping content-duplicate memories) and fixes up cross-entity
+// references so a task/epic memory ref points at the remapped memory.
+// preserveIDs restores original ids and errors on any id collision.
 func (m *Manager) Import(doc ExportDoc, preserveIDs bool) (ImportResult, error) {
 	if doc.SchemaVersion > ExportSchemaVersion {
 		return ImportResult{}, &contract.Error{Code: contract.CodeConfigInvalid,
 			Message: fmt.Sprintf("export schema v%d is newer than supported v%d", doc.SchemaVersion, ExportSchemaVersion)}
 	}
 
-	res := ImportResult{Total: len(doc.Memories), PreserveIDs: preserveIDs}
+	res := ImportResult{Total: len(doc.Memories) + len(doc.Epics) + len(doc.Tasks), PreserveIDs: preserveIDs}
 
-	// The content-hash dedup set is read up front (a bulk read). The
-	// preserve-ids collision check reads through the tx instead (see
-	// importPreserve), so it is both atomic and free of the single-connection
-	// deadlock that a pool read inside WithTx would cause.
-	existing, err := m.existingHashes()
+	// The content-hash->id index is read up front (a bulk read). Preserve-ids
+	// collision checks read through the tx instead, so they are both atomic and
+	// free of the single-connection deadlock a pool read inside WithTx causes.
+	existing, err := m.existingHashIDs()
 	if err != nil {
 		return ImportResult{}, err
 	}
 
 	err = m.DB.WithTx(func(tx *store.Tx) error {
-		maxID := int64(0)
-		for _, rec := range doc.Memories {
-			if preserveIDs {
-				imported, err := importPreserve(tx, rec)
-				if err != nil {
-					return err
-				}
-				if imported > maxID {
-					maxID = imported
-				}
-				res.Imported++
-				continue
-			}
+		// memMap/epicMap translate a document's original numeric ids to the ids
+		// actually written, so later entities can fix up their cross-references.
+		memMap := map[int64]int64{}
+		epicMap := map[int64]int64{}
+		maxMem, maxEpic, maxTask := int64(0), int64(0), int64(0)
 
-			h := recordHash(rec)
-			if existing[h] {
-				res.Skipped++
-				continue
-			}
-			existing[h] = true
-			if err := m.importReassign(tx, rec); err != nil {
+		if err := m.importMemories(tx, doc.Memories, preserveIDs, existing, memMap, &res, &maxMem); err != nil {
+			return err
+		}
+		if err := importEpics(tx, doc.Epics, preserveIDs, memMap, epicMap, &res, &maxEpic); err != nil {
+			return err
+		}
+		if err := importTasks(tx, doc.Tasks, preserveIDs, memMap, epicMap, &res, &maxTask); err != nil {
+			return err
+		}
+
+		if preserveIDs {
+			if err := advanceSeqs(tx, maxMem, maxEpic, maxTask); err != nil {
 				return err
 			}
-			res.Imported++
-		}
-		if preserveIDs && maxID > 0 {
-			return tx.SetMemSeqAtLeast(maxID)
 		}
 		return nil
 	})
@@ -139,29 +143,154 @@ func (m *Manager) Import(doc ExportDoc, preserveIDs bool) (ImportResult, error) 
 	return res, nil
 }
 
-func (m *Manager) importReassign(tx *store.Tx, rec ExportRecord) error {
-	id, err := tx.NextMemSeq()
-	if err != nil {
-		return err
+func (m *Manager) importMemories(tx *store.Tx, recs []ExportRecord, preserveIDs bool, existing map[string]int64, memMap map[int64]int64, res *ImportResult, maxMem *int64) error {
+	for _, rec := range recs {
+		old, _ := ParseID(rec.ID) // 0 if absent/malformed: simply not remapped
+		if preserveIDs {
+			id, err := ParseID(rec.ID)
+			if err != nil {
+				return err
+			}
+			exists, err := tx.MemoryExists(id)
+			if err != nil {
+				return err
+			}
+			if exists {
+				return collision("memory", rec.ID)
+			}
+			if err := writeRecord(tx, id, rec); err != nil {
+				return err
+			}
+			memMap[id] = id
+			bump(maxMem, id)
+			res.Imported++
+			continue
+		}
+		h := recordHash(rec)
+		if eid, ok := existing[h]; ok {
+			memMap[old] = eid
+			res.Skipped++
+			continue
+		}
+		id, err := tx.NextMemSeq()
+		if err != nil {
+			return err
+		}
+		if err := writeRecord(tx, id, rec); err != nil {
+			return err
+		}
+		existing[h] = id
+		memMap[old] = id
+		res.Imported++
 	}
-	return writeRecord(tx, id, rec)
+	return nil
 }
 
-func importPreserve(tx *store.Tx, rec ExportRecord) (int64, error) {
-	id, err := ParseID(rec.ID)
-	if err != nil {
-		return 0, err
+func importEpics(tx *store.Tx, recs []ExportEpic, preserveIDs bool, memMap, epicMap map[int64]int64, res *ImportResult, maxEpic *int64) error {
+	for _, rec := range recs {
+		old, _ := parseWorkID(rec.ID, "epic_")
+		var id int64
+		if preserveIDs {
+			parsed, err := parseWorkID(rec.ID, "epic_")
+			if err != nil {
+				return err
+			}
+			exists, err := tx.EpicExists(parsed)
+			if err != nil {
+				return err
+			}
+			if exists {
+				return collision("epic", rec.ID)
+			}
+			id = parsed
+			bump(maxEpic, parsed)
+		} else {
+			newID, err := tx.NextEpicSeq()
+			if err != nil {
+				return err
+			}
+			id = newID
+		}
+		if err := writeEpic(tx, id, rec, memMap); err != nil {
+			return err
+		}
+		epicMap[old] = id
+		res.Imported++
 	}
-	exists, err := tx.MemoryExists(id)
-	if err != nil {
-		return 0, err
+	return nil
+}
+
+func importTasks(tx *store.Tx, recs []ExportTask, preserveIDs bool, memMap, epicMap map[int64]int64, res *ImportResult, maxTask *int64) error {
+	for _, rec := range recs {
+		oldEpic, err := parseWorkID(rec.Epic, "epic_")
+		if err != nil {
+			return err
+		}
+		if preserveIDs {
+			id, err := parseWorkID(rec.ID, "task_")
+			if err != nil {
+				return err
+			}
+			exists, err := tx.TaskExists(id)
+			if err != nil {
+				return err
+			}
+			if exists {
+				return collision("task", rec.ID)
+			}
+			if err := writeTask(tx, id, oldEpic, rec, memMap); err != nil {
+				return err
+			}
+			bump(maxTask, id)
+			res.Imported++
+			continue
+		}
+		newEpic, ok := epicMap[oldEpic]
+		if !ok {
+			return &contract.Error{Code: contract.CodeConfigInvalid,
+				Message: "task " + rec.ID + " references epic " + rec.Epic + " not present in the document"}
+		}
+		id, err := tx.NextTaskSeq()
+		if err != nil {
+			return err
+		}
+		if err := writeTask(tx, id, newEpic, rec, memMap); err != nil {
+			return err
+		}
+		res.Imported++
 	}
-	if exists {
-		return 0, &contract.Error{Code: contract.CodeStoreError,
-			Message: "id collision importing " + rec.ID + " with --preserve-ids",
-			Hint:    "import into an empty store or drop --preserve-ids"}
+	return nil
+}
+
+func advanceSeqs(tx *store.Tx, maxMem, maxEpic, maxTask int64) error {
+	if maxMem > 0 {
+		if err := tx.SetMemSeqAtLeast(maxMem); err != nil {
+			return err
+		}
 	}
-	return id, writeRecord(tx, id, rec)
+	if maxEpic > 0 {
+		if err := tx.SetEpicSeqAtLeast(maxEpic); err != nil {
+			return err
+		}
+	}
+	if maxTask > 0 {
+		if err := tx.SetTaskSeqAtLeast(maxTask); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func bump(max *int64, v int64) {
+	if v > *max {
+		*max = v
+	}
+}
+
+func collision(kind, id string) *contract.Error {
+	return &contract.Error{Code: contract.CodeStoreError,
+		Message: "id collision importing " + kind + " " + id + " with --preserve-ids",
+		Hint:    "import into an empty store or drop --preserve-ids"}
 }
 
 func writeRecord(tx *store.Tx, id int64, rec ExportRecord) error {
@@ -188,19 +317,22 @@ func writeRecord(tx *store.Tx, id int64, rec ExportRecord) error {
 	return tx.ReindexMemoryFTS(id, rec.Title, rec.Body, rec.Tags)
 }
 
-func (m *Manager) existingHashes() (map[string]bool, error) {
+// existingHashIDs maps each existing memory's content hash to its id, so a
+// reassign import can both skip content-duplicates and remap references to the
+// already-present memory.
+func (m *Manager) existingHashIDs() (map[string]int64, error) {
 	ids, err := m.DB.AllMemoryIDs()
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]bool{}
+	out := map[string]int64{}
 	for _, id := range ids {
 		full, ok, err := m.DB.MemoryFull(id)
 		if err != nil {
 			return nil, err
 		}
 		if ok {
-			out[recordHash(exportRecordFrom(full))] = true
+			out[recordHash(exportRecordFrom(full))] = id
 		}
 	}
 	return out, nil

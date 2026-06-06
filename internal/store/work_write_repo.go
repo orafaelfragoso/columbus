@@ -154,6 +154,25 @@ func (t *Tx) AddWorkTag(ownerType string, ownerID int64, tag string) error {
 	return storeErr(err)
 }
 
+// EpicExists / TaskExists report existence through the transaction's own
+// connection — required for preserve-ids collision checks inside WithTx, where
+// a pool read would deadlock against the single writer connection.
+func (t *Tx) EpicExists(id int64) (bool, error) {
+	var n int
+	if err := t.tx.QueryRow(`SELECT COUNT(*) FROM epics WHERE id = ?`, id).Scan(&n); err != nil {
+		return false, storeErr(err)
+	}
+	return n > 0, nil
+}
+
+func (t *Tx) TaskExists(id int64) (bool, error) {
+	var n int
+	if err := t.tx.QueryRow(`SELECT COUNT(*) FROM tasks WHERE id = ?`, id).Scan(&n); err != nil {
+		return false, storeErr(err)
+	}
+	return n > 0, nil
+}
+
 // AddWorkRef adds a drift-checked reference to an epic or task (idempotent).
 func (t *Tx) AddWorkRef(ownerType string, ownerID int64, targetType, targetRef string) error {
 	_, err := t.tx.Exec(`INSERT OR IGNORE INTO work_refs (owner_type, owner_id, target_type, target_ref)

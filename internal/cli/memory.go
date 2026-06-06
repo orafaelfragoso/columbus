@@ -28,7 +28,7 @@ type exportConfirm struct {
 
 func (exportConfirm) CommandName() string { return "memory" }
 func (c exportConfirm) RenderText(w io.Writer, _ render.Options) error {
-	_, err := io.WriteString(w, "exported "+strconv.Itoa(c.Count)+" memories to "+c.Out+"\n")
+	_, err := io.WriteString(w, "exported "+strconv.Itoa(c.Count)+" knowledge entities to "+c.Out+"\n")
 	return err
 }
 func (c exportConfirm) RenderLLM(w io.Writer, _ render.Options) error {
@@ -260,7 +260,7 @@ func newMemoryExportCmd(env *Env) *cobra.Command {
 	var kind, tag, out string
 	cmd := &cobra.Command{
 		Use:   "export",
-		Short: "Export memories as a portable JSON document (stdout by default)",
+		Short: "Export knowledge (memories, epics, tasks) as a portable JSON document (stdout by default)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			proj, err := env.openProject()
@@ -288,7 +288,8 @@ func newMemoryExportCmd(env *Env) *cobra.Command {
 			if err := os.WriteFile(out, buf.Bytes(), 0o644); err != nil {
 				return &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
 			}
-			return renderResult(env, exportConfirm{Out: out, Count: len(doc.Memories)})
+			count := len(doc.Memories) + len(doc.Epics) + len(doc.Tasks)
+			return renderResult(env, exportConfirm{Out: out, Count: count})
 		},
 	}
 	cmd.Flags().StringVar(&kind, "kind", "", "filter by kind")
@@ -301,7 +302,7 @@ func newMemoryImportCmd(env *Env) *cobra.Command {
 	var preserveIDs bool
 	cmd := &cobra.Command{
 		Use:   "import [path]",
-		Short: "Import memories from a JSON document (path or stdin)",
+		Short: "Import knowledge (memories, epics, tasks) from a JSON document (path or stdin)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			raw, err := readImportInput(env, args)

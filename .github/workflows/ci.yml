@@ -30,5 +30,17 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Vet
         run: go vet -tags fts5 ./...
-      - name: Test
-        run: go test -tags fts5 -timeout 300s ./...
+      - name: Test (race)
+        run: go test -tags fts5 -race -timeout 300s ./...
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Run govulncheck
+        run: govulncheck -tags fts5 ./...

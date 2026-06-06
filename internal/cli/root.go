@@ -55,6 +55,7 @@ func newRootCmd(env *Env) *cobra.Command {
 
 	root.AddCommand(newVersionCmd(env))
 	root.AddCommand(newInitCmd(env))
+	root.AddCommand(newIndexCmd(env))
 	root.AddCommand(newSelftestCmd(env))
 
 	return root

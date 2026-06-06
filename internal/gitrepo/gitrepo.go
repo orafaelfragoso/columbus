@@ -79,6 +79,61 @@ func (i Info) AddExclude(entry string) error {
 	return nil
 }
 
+// ListTracked returns repo-relative paths of all tracked files.
+func (i Info) ListTracked() ([]string, error) {
+	return i.lines("ls-files", "-z")
+}
+
+// ListUntracked returns repo-relative paths of untracked files that are not
+// excluded by .gitignore (so newly-created, not-yet-committed files index).
+func (i Info) ListUntracked() ([]string, error) {
+	return i.lines("ls-files", "--others", "--exclude-standard", "-z")
+}
+
+// ListModified returns repo-relative paths of tracked files modified in the
+// working tree (the fast-path candidate set for --changed).
+func (i Info) ListModified() ([]string, error) {
+	return i.lines("ls-files", "-m", "-z")
+}
+
+// HeadOID returns the current HEAD commit oid, or "" if the repo has no commits.
+func (i Info) HeadOID() (string, error) {
+	out, err := run(i.WorkDir, "rev-parse", "HEAD")
+	if err != nil {
+		// No commits yet (unborn HEAD) is not an error for our purposes.
+		return "", nil
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// IsDirty reports whether the working tree has uncommitted changes (modified,
+// staged, or untracked-not-ignored). False outside a repo.
+func (i Info) IsDirty() (bool, error) {
+	if !i.IsRepo {
+		return false, nil
+	}
+	out, err := run(i.WorkDir, "status", "--porcelain")
+	if err != nil {
+		return false, &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+// lines runs a git command emitting NUL-separated paths and returns them.
+func (i Info) lines(args ...string) ([]string, error) {
+	out, err := run(i.WorkDir, args...)
+	if err != nil {
+		return nil, &contract.Error{Code: contract.CodeStoreError, Message: "git " + strings.Join(args, " ") + ": " + err.Error()}
+	}
+	var paths []string
+	for _, p := range strings.Split(out, "\x00") {
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths, nil
+}
+
 // run executes a git subcommand in dir and returns stdout.
 func run(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)

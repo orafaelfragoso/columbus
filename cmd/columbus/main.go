@@ -4,10 +4,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/rafaelfragoso/columbus/internal/cli"
 	"github.com/rafaelfragoso/columbus/internal/clock"
+	"github.com/rafaelfragoso/columbus/internal/contract"
 	"github.com/rafaelfragoso/columbus/internal/ids"
 )
 
@@ -19,7 +21,12 @@ var (
 )
 
 func main() {
-	wd, _ := os.Getwd()
+	wd, err := cli.ResolveWorkDir(os.Getwd)
+	if err != nil {
+		ce := contract.AsError(err)
+		fmt.Fprintf(os.Stderr, "error [%s]: %s\n", ce.Code, ce.Message)
+		os.Exit(int(ce.Code.Exit()))
+	}
 	env := cli.Env{
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,

@@ -5,9 +5,23 @@ import (
 	"os"
 
 	"github.com/rafaelfragoso/columbus/internal/clock"
+	"github.com/rafaelfragoso/columbus/internal/contract"
 	"github.com/rafaelfragoso/columbus/internal/ids"
 	"github.com/rafaelfragoso/columbus/internal/render"
 )
+
+// ResolveWorkDir returns the working directory from getwd (os.Getwd in
+// production), mapping a failure to a clear error instead of silently using ""
+// — an empty WorkDir otherwise produces confusing path errors deep in later
+// operations.
+func ResolveWorkDir(getwd func() (string, error)) (string, error) {
+	wd, err := getwd()
+	if err != nil {
+		return "", contract.Errorf(contract.CodeStoreError,
+			"cannot determine working directory: %v", err)
+	}
+	return wd, nil
+}
 
 // BuildInfo holds version metadata injected at build time via -ldflags.
 type BuildInfo struct {

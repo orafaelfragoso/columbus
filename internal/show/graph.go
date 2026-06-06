@@ -153,6 +153,16 @@ func (s *Shower) Graph(opts GraphOptions) (GraphResult, error) {
 		}
 	}
 
+	// Report degrees over the visible (pruned) edges so the {nodes, edges}
+	// contract stays self-consistent: a node's in_degree/out_degree always
+	// equals the edges present in the result. (The cap above still ranks by the
+	// pre-cap, full-filtered in-degree so the most-central nodes survive.)
+	finalIn, finalOut := degrees(pruned)
+	for i := range nodes {
+		nodes[i].InDegree = finalIn[nodes[i].ID]
+		nodes[i].OutDegree = finalOut[nodes[i].ID]
+	}
+
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
 	sort.Slice(pruned, func(i, j int) bool {
 		if pruned[i].From != pruned[j].From {

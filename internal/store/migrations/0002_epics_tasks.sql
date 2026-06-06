@@ -40,14 +40,16 @@ CREATE TABLE work_tags (
 );
 
 -- Append-only event log: one row per status change and/or comment. At least one
--- of new_status / comment is present (enforced in the writer).
+-- of new_status / comment is present (enforced by the CHECK, so an all-empty
+-- event from an imported document is rejected rather than silently stored).
 CREATE TABLE work_events (
     id         INTEGER PRIMARY KEY,
     owner_type TEXT NOT NULL,
     owner_id   INTEGER NOT NULL,
     new_status TEXT,
     comment    TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    CHECK (new_status IS NOT NULL OR comment IS NOT NULL)
 );
 CREATE INDEX idx_work_events_owner ON work_events(owner_type, owner_id);
 

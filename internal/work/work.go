@@ -48,11 +48,11 @@ func parseID(id, prefix, label string) (int64, error) {
 	return v, nil
 }
 
-// Manager performs epic/task operations against a store.
+// Manager performs epic/task operations against a store. References resolve
+// against the indexed store, so no working-tree path is needed.
 type Manager struct {
-	DB      *store.DB
-	Clock   clock.Clock
-	WorkDir string
+	DB    *store.DB
+	Clock clock.Clock
 }
 
 func (m *Manager) now() string {

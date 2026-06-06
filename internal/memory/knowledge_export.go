@@ -144,33 +144,37 @@ func eventsToExport(events []store.WorkEvent) []ExportEvent {
 
 // writeEpic restores an epic row, its tags, refs (memory refs remapped through
 // memMap) and event history, and rebuilds its FTS row.
-func writeEpic(tx *store.Tx, id int64, rec ExportEpic, memMap map[int64]int64) error {
+func writeEpic(tx *store.Tx, id int64, rec ExportEpic, memMap map[int64]int64, reassign bool) error {
 	if err := tx.InsertEpic(id, rec.Title, rec.Body, statusOrDefault(rec.Status), rec.CreatedAt, rec.UpdatedAt); err != nil {
 		return err
 	}
-	return writeWorkAssociations(tx, "epic", id, rec.Title, rec.Body, rec.Tags, rec.Refs, rec.Events, memMap)
+	return writeWorkAssociations(tx, "epic", id, rec.Title, rec.Body, rec.Tags, rec.Refs, rec.Events, memMap, reassign)
 }
 
 // writeTask restores a task row (re-parented to epicID), its associations and
 // FTS row.
-func writeTask(tx *store.Tx, id, epicID int64, rec ExportTask, memMap map[int64]int64) error {
+func writeTask(tx *store.Tx, id, epicID int64, rec ExportTask, memMap map[int64]int64, reassign bool) error {
 	if err := tx.InsertTask(id, epicID, rec.Title, rec.Body, statusOrDefault(rec.Status), rec.CreatedAt, rec.UpdatedAt); err != nil {
 		return err
 	}
-	return writeWorkAssociations(tx, "task", id, rec.Title, rec.Body, rec.Tags, rec.Refs, rec.Events, memMap)
+	return writeWorkAssociations(tx, "task", id, rec.Title, rec.Body, rec.Tags, rec.Refs, rec.Events, memMap, reassign)
 }
 
 // writeWorkAssociations restores an owner's tags, refs (memory refs remapped
 // through memMap) and events, then rebuilds its FTS row from title/body/tags
 // and the event comments.
-func writeWorkAssociations(tx *store.Tx, ownerType string, id int64, title, body string, tags []string, refs []ExportRef, events []ExportEvent, memMap map[int64]int64) error {
+func writeWorkAssociations(tx *store.Tx, ownerType string, id int64, title, body string, tags []string, refs []ExportRef, events []ExportEvent, memMap map[int64]int64, reassign bool) error {
 	for _, tag := range tags {
 		if err := tx.AddWorkTag(ownerType, id, tag); err != nil {
 			return err
 		}
 	}
 	for _, ref := range refs {
-		if err := tx.AddWorkRef(ownerType, id, ref.TargetType, remapRef(ref, memMap)); err != nil {
+		target, keep := remapRef(ref, memMap, reassign)
+		if !keep {
+			continue
+		}
+		if err := tx.AddWorkRef(ownerType, id, ref.TargetType, target); err != nil {
 			return err
 		}
 	}
@@ -186,20 +190,28 @@ func writeWorkAssociations(tx *store.Tx, ownerType string, id int64, title, body
 	return tx.ReindexWorkFTS(ownerType, id, title, body, strings.Join(tags, " "), strings.Join(comments, " "))
 }
 
-// remapRef rewrites a memory reference to the imported memory's new id when the
-// old id was remapped during a reassign import; other refs pass through.
-func remapRef(ref ExportRef, memMap map[int64]int64) string {
+// remapRef resolves a reference's stored target for import. A memory ref is
+// rewritten to the imported memory's new id when its old id was remapped; in
+// reassign mode a memory ref whose old id is absent from the document is
+// DROPPED (keep=false) rather than passed through, since the bare numeric id
+// would point at an unrelated local memory. Under preserve-ids the original id
+// is correct (ids are kept), so it passes through. Non-memory refs always pass
+// through unchanged.
+func remapRef(ref ExportRef, memMap map[int64]int64, reassign bool) (target string, keep bool) {
 	if ref.TargetType != "memory" {
-		return ref.TargetRef
+		return ref.TargetRef, true
 	}
 	old, err := ParseID(ref.TargetRef)
 	if err != nil {
-		return ref.TargetRef
+		return ref.TargetRef, true
 	}
 	if newID, ok := memMap[old]; ok {
-		return FormatID(newID)
+		return FormatID(newID), true
 	}
-	return ref.TargetRef
+	if reassign {
+		return "", false
+	}
+	return ref.TargetRef, true
 }
 
 func statusOrDefault(s string) string {

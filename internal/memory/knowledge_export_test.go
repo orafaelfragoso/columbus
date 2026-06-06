@@ -100,6 +100,37 @@ func TestImportPreserveIDsRoundTripsKnowledge(t *testing.T) {
 	}
 }
 
+func TestImportReassignDropsUnmappableMemoryRef(t *testing.T) {
+	dst, _ := newManager(t, nil)
+	// Reassign import of an epic whose memory ref points at a memory NOT in the
+	// document: the bare numeric id would mis-target a local memory, so the ref
+	// is dropped rather than silently written.
+	doc := ExportDoc{
+		SchemaVersion: ExportSchemaVersion,
+		Epics: []ExportEpic{{
+			ID: "epic_003", Title: "orphan-ref epic", Status: "todo",
+			Refs:   []ExportRef{{TargetType: "memory", TargetRef: "mem_099"}, {TargetType: "symbol", TargetRef: "Foo"}},
+			Events: []ExportEvent{{Status: "todo", CreatedAt: "t0"}},
+		}},
+	}
+	if _, err := dst.Import(doc, false); err != nil {
+		t.Fatalf("reassign import: %v", err)
+	}
+	out, _ := dst.Export("", "")
+	if len(out.Epics) != 1 {
+		t.Fatalf("epics = %+v", out.Epics)
+	}
+	for _, r := range out.Epics[0].Refs {
+		if r.TargetType == "memory" {
+			t.Fatalf("unmappable memory ref should be dropped, got %+v", r)
+		}
+	}
+	// The non-memory (symbol) ref survives untouched.
+	if len(out.Epics[0].Refs) != 1 || out.Epics[0].Refs[0].TargetType != "symbol" {
+		t.Fatalf("symbol ref should survive: %+v", out.Epics[0].Refs)
+	}
+}
+
 func TestImportPreserveIDsEpicCollisionErrors(t *testing.T) {
 	dst, _ := newManager(t, nil)
 	seedEpicWithTask(t, dst, "mem_001") // occupies epic_001 / task_001

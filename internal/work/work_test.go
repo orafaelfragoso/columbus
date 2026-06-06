@@ -18,7 +18,7 @@ func newManager(t *testing.T) *Manager {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return &Manager{DB: db, Clock: clock.Fixed{T: time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC)}, WorkDir: t.TempDir()}
+	return &Manager{DB: db, Clock: clock.Fixed{T: time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC)}}
 }
 
 func assertCode(t *testing.T, err error, want contract.Code) {

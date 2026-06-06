@@ -211,7 +211,7 @@ func importEpics(tx *store.Tx, recs []ExportEpic, preserveIDs bool, memMap, epic
 			}
 			id = newID
 		}
-		if err := writeEpic(tx, id, rec, memMap); err != nil {
+		if err := writeEpic(tx, id, rec, memMap, !preserveIDs); err != nil {
 			return err
 		}
 		epicMap[old] = id
@@ -238,7 +238,7 @@ func importTasks(tx *store.Tx, recs []ExportTask, preserveIDs bool, memMap, epic
 			if exists {
 				return collision("task", rec.ID)
 			}
-			if err := writeTask(tx, id, oldEpic, rec, memMap); err != nil {
+			if err := writeTask(tx, id, oldEpic, rec, memMap, false); err != nil {
 				return err
 			}
 			bump(maxTask, id)
@@ -254,7 +254,7 @@ func importTasks(tx *store.Tx, recs []ExportTask, preserveIDs bool, memMap, epic
 		if err != nil {
 			return err
 		}
-		if err := writeTask(tx, id, newEpic, rec, memMap); err != nil {
+		if err := writeTask(tx, id, newEpic, rec, memMap, true); err != nil {
 			return err
 		}
 		res.Imported++

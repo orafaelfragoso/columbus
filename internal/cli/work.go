@@ -18,7 +18,7 @@ func withWorkManager(env *Env, cmdName string, level slog.Level, fn func(*work.M
 		return err
 	}
 	defer proj.Close()
-	mgr := &work.Manager{DB: proj.DB, Clock: env.Clock, WorkDir: env.WorkDir}
+	mgr := &work.Manager{DB: proj.DB, Clock: env.Clock}
 	payload, err := fn(mgr)
 	if err != nil {
 		proj.Logger.Info(cmdName+" failed", "error", err.Error())

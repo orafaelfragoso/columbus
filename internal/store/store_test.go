@@ -155,6 +155,37 @@ func TestNextMemSeqIsMonotonic(t *testing.T) {
 	}
 }
 
+func TestTxMemoryExistsReadsInsideTransaction(t *testing.T) {
+	db := openTemp(t)
+
+	// A read inside WithTx must use the transaction's own connection. With
+	// SetMaxOpenConns(1) a pool read here would block until busy_timeout and
+	// fail; the tx-scoped read both avoids that and sees uncommitted writes.
+	err := db.WithTx(func(tx *Tx) error {
+		if err := tx.InsertMemory(1, "decision", "t", "b", "now", "now"); err != nil {
+			return err
+		}
+		exists, err := tx.MemoryExists(1)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			t.Error("tx.MemoryExists(1) = false inside tx, want true (read-your-writes)")
+		}
+		absent, err := tx.MemoryExists(2)
+		if err != nil {
+			return err
+		}
+		if absent {
+			t.Error("tx.MemoryExists(2) = true, want false")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WithTx: %v", err)
+	}
+}
+
 func TestWithTxCommitsAndRollsBack(t *testing.T) {
 	db := openTemp(t)
 

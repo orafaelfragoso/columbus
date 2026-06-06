@@ -105,6 +105,19 @@ func (d *DB) MemoryExists(id int64) (bool, error) {
 	return n > 0, nil
 }
 
+// MemoryExists reports whether a memory id exists, reading through the
+// transaction's own connection. Reads needed mid-write MUST use this rather
+// than the DB-level read: with SetMaxOpenConns(1) the writer holds the only
+// connection, so a pool read inside WithTx would block until busy_timeout and
+// surface as INDEX_LOCKED. The tx-scoped read also sees uncommitted writes.
+func (t *Tx) MemoryExists(id int64) (bool, error) {
+	var n int
+	if err := t.tx.QueryRow(`SELECT COUNT(*) FROM memories WHERE id = ?`, id).Scan(&n); err != nil {
+		return false, storeErr(err)
+	}
+	return n > 0, nil
+}
+
 // ListMemories returns memory summaries filtered by optional kind and tag.
 func (d *DB) ListMemories(kind, tag string) ([]MemoryBrief, error) {
 	query := `SELECT DISTINCT m.id, m.kind, m.title FROM memories m`

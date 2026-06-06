@@ -93,13 +93,11 @@ func (m *Manager) Import(doc ExportDoc, preserveIDs bool) (ImportResult, error) 
 
 	res := ImportResult{Total: len(doc.Memories), PreserveIDs: preserveIDs}
 
-	// All DB reads happen up front: they cannot run inside WithTx, which holds
-	// the single writer connection.
+	// The content-hash dedup set is read up front (a bulk read). The
+	// preserve-ids collision check reads through the tx instead (see
+	// importPreserve), so it is both atomic and free of the single-connection
+	// deadlock that a pool read inside WithTx would cause.
 	existing, err := m.existingHashes()
-	if err != nil {
-		return ImportResult{}, err
-	}
-	existingIDs, err := m.existingIDSet()
 	if err != nil {
 		return ImportResult{}, err
 	}
@@ -108,11 +106,10 @@ func (m *Manager) Import(doc ExportDoc, preserveIDs bool) (ImportResult, error) 
 		maxID := int64(0)
 		for _, rec := range doc.Memories {
 			if preserveIDs {
-				imported, err := importPreserve(tx, rec, existingIDs)
+				imported, err := importPreserve(tx, rec)
 				if err != nil {
 					return err
 				}
-				existingIDs[imported] = true
 				if imported > maxID {
 					maxID = imported
 				}
@@ -150,12 +147,16 @@ func (m *Manager) importReassign(tx *store.Tx, rec ExportRecord) error {
 	return writeRecord(tx, id, rec)
 }
 
-func importPreserve(tx *store.Tx, rec ExportRecord, existingIDs map[int64]bool) (int64, error) {
+func importPreserve(tx *store.Tx, rec ExportRecord) (int64, error) {
 	id, err := ParseID(rec.ID)
 	if err != nil {
 		return 0, err
 	}
-	if existingIDs[id] {
+	exists, err := tx.MemoryExists(id)
+	if err != nil {
+		return 0, err
+	}
+	if exists {
 		return 0, &contract.Error{Code: contract.CodeStoreError,
 			Message: "id collision importing " + rec.ID + " with --preserve-ids",
 			Hint:    "import into an empty store or drop --preserve-ids"}
@@ -185,18 +186,6 @@ func writeRecord(tx *store.Tx, id int64, rec ExportRecord) error {
 		}
 	}
 	return tx.ReindexMemoryFTS(id, rec.Title, rec.Body, rec.Tags)
-}
-
-func (m *Manager) existingIDSet() (map[int64]bool, error) {
-	ids, err := m.DB.AllMemoryIDs()
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[int64]bool, len(ids))
-	for _, id := range ids {
-		out[id] = true
-	}
-	return out, nil
 }
 
 func (m *Manager) existingHashes() (map[string]bool, error) {

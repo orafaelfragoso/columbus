@@ -3,6 +3,9 @@
 /columbus
 *.test
 
+# Zig cross-compile cache (created by zig cc during cgo release builds)
+.zig-cache/
+
 # Local data / coverage
 *.sqlite
 *.sqlite-wal

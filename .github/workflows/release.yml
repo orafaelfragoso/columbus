@@ -24,7 +24,7 @@ jobs:
 
       # zig provides the C cross-compiler for every cgo target in one pipeline.
       - name: Set up Zig
-        uses: mlugg/setup-zig@v1
+        uses: mlugg/setup-zig@v2
         with:
           version: 0.13.0
 

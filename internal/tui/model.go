@@ -102,6 +102,9 @@ type Model struct {
 	detail      viewport.Model
 	showDetail  bool
 	detailTitle string
+	// detailFromResults marks a detail view opened by drilling into a search
+	// result, so Esc steps back to the results list instead of the dashboard.
+	detailFromResults bool
 
 	searchInput  textinput.Model
 	searchActive bool
@@ -170,13 +173,24 @@ func resultsDelegate() list.DefaultDelegate {
 }
 
 func newTable() table.Model {
+	return table.New(table.WithStyles(tableStyles(false)))
+}
+
+// tableStyles builds the shared table look. Only the focused pane paints an
+// active selection background; blurred panes show a muted, background-less
+// cursor row so the violet border is the single, unambiguous focus cue.
+func tableStyles(active bool) table.Styles {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).BorderForeground(cBorder).BorderBottom(true).
 		Padding(0, 0).Bold(false).Foreground(cMuted)
-	s.Selected = s.Selected.Foreground(cBright).Background(selBg).Bold(true)
 	s.Cell = s.Cell.Padding(0, 0).Foreground(cText)
-	return table.New(table.WithStyles(s))
+	if active {
+		s.Selected = s.Selected.Foreground(cBright).Background(selBg).Bold(true)
+	} else {
+		s.Selected = lipgloss.NewStyle().Foreground(cMuted)
+	}
+	return s
 }
 
 func (m Model) Init() tea.Cmd {
@@ -318,6 +332,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.showResults = false
 		case m.showDetail:
 			m.showDetail = false
+			if m.detailFromResults {
+				m.detailFromResults = false
+				m.showResults = true
+			}
 		}
 		return m, nil
 	}
@@ -399,20 +417,16 @@ func (m *Model) cycleFocus(dir int) {
 }
 
 func (m *Model) applyFocus() {
-	m.epics.Blur()
-	m.tasks.Blur()
-	m.mem.Blur()
-	m.graph.Blur()
-	switch m.focus {
-	case focusEpics:
-		m.epics.Focus()
-	case focusTasks:
-		m.tasks.Focus()
-	case focusMemory:
-		m.mem.Focus()
-	case focusGraph:
-		m.graph.Focus()
+	for _, t := range []*table.Model{&m.epics, &m.tasks, &m.mem, &m.graph} {
+		t.Blur()
+		t.SetStyles(tableStyles(false))
 	}
+	active := map[focus]*table.Model{
+		focusEpics: &m.epics, focusTasks: &m.tasks,
+		focusMemory: &m.mem, focusGraph: &m.graph,
+	}[m.focus]
+	active.Focus()
+	active.SetStyles(tableStyles(true))
 }
 
 func (m *Model) openSearch() tea.Cmd {
@@ -448,6 +462,7 @@ func (m *Model) openHitDetail() {
 	m.setDetail(kind, id, md)
 	m.showResults = false
 	m.showDetail = true
+	m.detailFromResults = true
 }
 
 func (m *Model) openDetail() {
@@ -488,6 +503,7 @@ func (m *Model) openDetail() {
 	}
 	m.setDetail(kind, id, md)
 	m.showDetail = true
+	m.detailFromResults = false
 }
 
 // setDetail renders markdown (preferring a rich DetailSource document when the
@@ -565,22 +581,22 @@ func (m *Model) rebuild() {
 	m.epics.SetColumns(epicColumns(d.epicsW - 4))
 	m.epics.SetRows(epicTableRows(m.allEpics, d.epicsW-4))
 	m.epics.SetWidth(d.epicsW - 4)
-	m.epics.SetHeight(maxInt(1, d.midH-5))
+	m.epics.SetHeight(max(1, d.midH-5))
 	m.epics.SetCursor(clampCursor(m.epics.Cursor(), len(m.allEpics)))
 
 	m.tasks.SetWidth(d.tasksW - 4)
-	m.tasks.SetHeight(maxInt(1, d.midH-5))
+	m.tasks.SetHeight(max(1, d.midH-5))
 
 	m.mem.SetColumns(memColumns(d.memW - 4))
 	m.mem.SetRows(memTableRows(m.snap.Mems, d.memW-4))
 	m.mem.SetWidth(d.memW - 4)
-	m.mem.SetHeight(maxInt(1, d.botH-5))
+	m.mem.SetHeight(max(1, d.botH-5))
 	m.mem.SetCursor(clampCursor(m.mem.Cursor(), len(m.snap.Mems)))
 
 	m.graph.SetColumns(graphColumns(d.graphW - 4))
 	m.graph.SetRows(graphTableRows(m.snap.Hubs, d.graphW-4))
 	m.graph.SetWidth(d.graphW - 4)
-	m.graph.SetHeight(maxInt(1, d.botH-5))
+	m.graph.SetHeight(max(1, d.botH-5))
 	m.graph.SetCursor(clampCursor(m.graph.Cursor(), len(m.snap.Hubs)))
 
 	m.detail.SetWidth(d.detailW)
@@ -622,7 +638,7 @@ func clampCursor(cur, n int) int {
 	return cur
 }
 
-func maxInt(a, b int) int {
+func max(a, b int) int {
 	if a > b {
 		return a
 	}

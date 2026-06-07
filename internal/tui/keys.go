@@ -45,3 +45,33 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Help, k.Quit},
 	}
 }
+
+// staticHelp is a fixed help.KeyMap used to give each modal (search, results,
+// detail) its own footer hints instead of the dashboard's pane-navigation keys,
+// which don't apply while a modal owns the input.
+type staticHelp struct{ keys []key.Binding }
+
+func (s staticHelp) ShortHelp() []key.Binding  { return s.keys }
+func (s staticHelp) FullHelp() [][]key.Binding { return [][]key.Binding{s.keys} }
+
+func searchHelpKeys() []key.Binding {
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "search")),
+		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	}
+}
+
+func resultsHelpKeys() []key.Binding {
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "select")),
+		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	}
+}
+
+func detailHelpKeys() []key.Binding {
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "scroll")),
+		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	}
+}

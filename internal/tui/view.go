@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"strings"
 
+	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -17,13 +18,11 @@ type layout struct {
 	detailW, detailH     int
 }
 
-// vGap is the number of blank rows between stacked sections.
-const vGap = 3
-
 func (m Model) dims() layout {
 	w, h := m.w, m.h
-	// header(2) + cards(6) + footer + 3 inter-section blank rows.
-	rem := h - 2 - cardHeight - lipgloss.Height(m.footerView()) - vGap
+	// Sections stack flush (no inter-section blank rows), so the mid+bot panels
+	// get everything left after the header(2), the cards(6) and the footer.
+	rem := h - 2 - cardHeight - lipgloss.Height(m.footerView())
 	if rem < 8 {
 		rem = 8
 	}
@@ -35,7 +34,9 @@ func (m Model) dims() layout {
 	return layout{
 		epicsW: epicsW, tasksW: midAvail - epicsW, midH: midH,
 		memW: memW, graphW: botAvail - memW, botH: rem - midH,
-		detailW: min(w-12, 96), detailH: h * 7 / 10,
+		// Clamp the overlay/detail box so a very narrow or short terminal can't
+		// drive a zero/negative box width (which would break the compositor math).
+		detailW: max(24, min(w-12, 96)), detailH: max(6, h*7/10),
 	}
 }
 
@@ -45,11 +46,8 @@ func (m Model) View() tea.View {
 	}
 	dash := lipgloss.JoinVertical(lipgloss.Left,
 		m.headerView(),
-		"",
 		m.cardsView(),
-		"",
 		m.midView(),
-		"",
 		m.botView(),
 		m.footerView(),
 	)
@@ -129,6 +127,8 @@ func (m Model) headerView() string {
 	switch {
 	case m.reindexing:
 		right = m.spin.View() + st(cViolet, false).Render(" reindexing…")
+	case m.searching:
+		right = m.spin.View() + st(cViolet, false).Render(" searching…")
 	case m.loading:
 		right = m.spin.View() + st(cMuted, false).Render(" loading…")
 	case m.err != nil:
@@ -189,7 +189,16 @@ func (m Model) botView() string {
 }
 
 func (m Model) footerView() string {
-	return lipgloss.NewStyle().Padding(0, 1).Render(m.help.View(m.keys))
+	var km help.KeyMap = m.keys
+	switch {
+	case m.searchActive:
+		km = staticHelp{searchHelpKeys()}
+	case m.showResults:
+		km = staticHelp{resultsHelpKeys()}
+	case m.showDetail:
+		km = staticHelp{detailHelpKeys()}
+	}
+	return lipgloss.NewStyle().Padding(0, 1).Render(m.help.View(km))
 }
 
 func memSub(counts map[string]int) string {

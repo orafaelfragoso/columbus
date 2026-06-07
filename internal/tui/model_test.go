@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type fakeSource struct{ snap Snapshot }
@@ -273,6 +274,49 @@ func TestResultsAreNavigableAndOpenDetail(t *testing.T) {
 	}
 }
 
+func TestEscFromResultDetailReturnsToResultsList(t *testing.T) {
+	hits := []SearchHit{
+		{Grain: "memory", ID: "mem_001", Title: "use WAL", Where: "mem_001"},
+		{Grain: "symbol", Title: "NewServer", Where: "internal/api/server.go:42"},
+	}
+	m := readyModel(t, New(fakeSource{sampleSnap()},
+		WithSearch(func(string) ([]SearchHit, error) { return hits, nil })))
+	m = mustUpdate(m, searchResultMsg{hits: hits})
+
+	// Drill into the second hit's detail.
+	m = mustUpdate(m, ktype(tea.KeyDown), ktype(tea.KeyEnter))
+	if !m.showDetail || m.showResults {
+		t.Fatalf("precondition: detail open over closed results (detail=%v results=%v)", m.showDetail, m.showResults)
+	}
+
+	// Esc steps back to the (preserved) results list rather than the dashboard.
+	m = mustUpdate(m, ktype(tea.KeyEscape))
+	if !m.showResults || m.showDetail {
+		t.Fatalf("esc should return to the results list (results=%v detail=%v)", m.showResults, m.showDetail)
+	}
+	if len(m.results.Items()) != 2 {
+		t.Fatalf("results list should be preserved, got %d items", len(m.results.Items()))
+	}
+
+	// A second esc closes the results list back to the dashboard.
+	m = mustUpdate(m, ktype(tea.KeyEscape))
+	if m.showResults {
+		t.Fatal("second esc should close the results modal back to the dashboard")
+	}
+}
+
+func TestEscFromPaneDetailReturnsToDashboard(t *testing.T) {
+	m := ready(t) // detail opened from a dashboard pane, not from results
+	m = mustUpdate(m, ktype(tea.KeyEnter))
+	if !m.showDetail {
+		t.Fatal("precondition: enter opens pane detail")
+	}
+	m = mustUpdate(m, ktype(tea.KeyEscape))
+	if m.showDetail || m.showResults {
+		t.Fatalf("esc from a pane detail should close to the dashboard (detail=%v results=%v)", m.showDetail, m.showResults)
+	}
+}
+
 func TestRefreshTickDoesNotCloseAnOpenModal(t *testing.T) {
 	hits := []SearchHit{{Grain: "symbol", Title: "NewServer", Where: "a.go:1"}}
 	m := readyModel(t, New(fakeSource{sampleSnap()},
@@ -369,6 +413,87 @@ func TestRefreshKeyEntersLoadingState(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("r did not return a reload command")
+	}
+}
+
+func TestOnlyFocusedTableShowsSelectionHighlight(t *testing.T) {
+	const selBgSeq = "48;2;36;29;61" // selBg (#241d3d) rendered as an ANSI background
+	m := ready(t)                    // focus starts on epics
+	if !strings.Contains(m.epics.View(), selBgSeq) {
+		t.Fatal("focused epics table should highlight its selected row")
+	}
+	if strings.Contains(m.graph.View(), selBgSeq) {
+		t.Fatalf("blurred graph table should not paint a selection highlight:\n%s", m.graph.View())
+	}
+
+	// Cycling focus moves the highlight; it must never leave two panes lit at once.
+	m = mustUpdate(m, ktype(tea.KeyTab), ktype(tea.KeyTab), ktype(tea.KeyTab)) // →graph
+	if !strings.Contains(m.graph.View(), selBgSeq) {
+		t.Fatal("graph table should highlight its selection once focused")
+	}
+	if strings.Contains(m.epics.View(), selBgSeq) {
+		t.Fatal("epics table should drop its highlight once blurred")
+	}
+}
+
+func TestSearchInProgressShowsHeaderFeedback(t *testing.T) {
+	m := readyModel(t, New(fakeSource{sampleSnap()},
+		WithSearch(func(string) ([]SearchHit, error) { return nil, nil })))
+	m = mustUpdate(m, runes("/"), runes("x"))
+	next, _ := m.Update(ktype(tea.KeyEnter))
+	nm := next.(Model)
+	if !nm.searching {
+		t.Fatal("precondition: enter should start a search")
+	}
+	if !strings.Contains(nm.View().Content, "searching") {
+		t.Fatalf("header should signal an in-flight search:\n%s", nm.View().Content)
+	}
+}
+
+func TestDimsAndViewSurviveTinyTerminals(t *testing.T) {
+	m := New(fakeSource{sampleSnap()})
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 12, Height: 5})
+	next, _ = next.(Model).Update(snapshotMsg{snap: sampleSnap()})
+	nm := next.(Model)
+
+	d := nm.dims()
+	if d.detailW < 1 || d.detailH < 1 {
+		t.Fatalf("detail dims must stay positive on a tiny terminal: %+v", d)
+	}
+	// Opening the search overlay at this size must not panic.
+	sm := mustUpdate(nm, runes("/"))
+	_ = sm.View().Content
+}
+
+func TestFooterHelpIsContextual(t *testing.T) {
+	m := ready(t)
+	if !strings.Contains(m.footerView(), "next pane") {
+		t.Fatal("dashboard footer should advertise pane navigation")
+	}
+	sm := mustUpdate(m, runes("/"))
+	f := sm.footerView()
+	if strings.Contains(f, "next pane") {
+		t.Fatalf("search footer should not show dashboard pane keys:\n%s", f)
+	}
+	if !strings.Contains(f, "cancel") {
+		t.Fatalf("search footer should show its own keys:\n%s", f)
+	}
+}
+
+func TestStackedSectionsRenderFlush(t *testing.T) {
+	m := ready(t)
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	for i := 1; i < len(lines)-1; i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			continue
+		}
+		prev := strings.TrimSpace(lines[i-1])
+		next := strings.TrimSpace(lines[i+1])
+		// A blank line wedged between one box's bottom border and the next box's
+		// top border is exactly the inter-section gap we want gone.
+		if strings.HasSuffix(prev, "╯") && strings.HasPrefix(next, "╭") {
+			t.Fatalf("blank separator between stacked sections at line %d:\n%q\n%q\n%q", i, prev, lines[i], next)
+		}
 	}
 }
 

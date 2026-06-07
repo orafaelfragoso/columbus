@@ -35,7 +35,7 @@ jobs:
           version: "~> v2"
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASER_TOKEN }}
           # cgo invokes `zig cc` from Go's read-only stdlib cwd, so zig cannot
           # create its default local cache there (AccessDenied). setup-zig v2 no
           # longer sets these for us (v1 did), so point both caches at a writable

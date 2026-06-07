@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // The unified knowledge document (schema v2) carries memories alongside the

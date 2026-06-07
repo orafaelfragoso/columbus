@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/contract"
 )
 
 // Format selects an output projection.

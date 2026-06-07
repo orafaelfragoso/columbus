@@ -6,7 +6,7 @@ import (
 
 	sqlite3 "github.com/mattn/go-sqlite3"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/contract"
 )
 
 // seedTwoFiles writes an implementation file with one symbol and a test file,

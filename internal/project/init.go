@@ -10,12 +10,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/rafaelfragoso/columbus/internal/config"
-	"github.com/rafaelfragoso/columbus/internal/contract"
-	"github.com/rafaelfragoso/columbus/internal/gitrepo"
-	"github.com/rafaelfragoso/columbus/internal/ids"
-	"github.com/rafaelfragoso/columbus/internal/render"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/config"
+	"github.com/orafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/gitrepo"
+	"github.com/orafaelfragoso/columbus/internal/ids"
+	"github.com/orafaelfragoso/columbus/internal/render"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // InitParams are the inputs to Init.

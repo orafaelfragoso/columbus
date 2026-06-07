@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rafaelfragoso/columbus/internal/extract"
+	"github.com/orafaelfragoso/columbus/internal/extract"
 )
 
 // MaxSnippetLines bounds snippet size so output stays manageable.

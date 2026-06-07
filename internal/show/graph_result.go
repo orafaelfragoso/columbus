@@ -5,7 +5,7 @@ import (
 	"io"
 	"sort"
 
-	"github.com/rafaelfragoso/columbus/internal/render"
+	"github.com/orafaelfragoso/columbus/internal/render"
 )
 
 // GraphNode is one node in the projected graph. File nodes carry classification

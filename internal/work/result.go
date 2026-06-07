@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/rafaelfragoso/columbus/internal/render"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/render"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // Ref is a rendered epic/task reference.

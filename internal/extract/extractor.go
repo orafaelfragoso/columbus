@@ -7,7 +7,7 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/contract"
 )
 
 // Extractor produces the IR for one language.

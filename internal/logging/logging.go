@@ -13,7 +13,7 @@ import (
 
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 
-	"github.com/rafaelfragoso/columbus/internal/clock"
+	"github.com/orafaelfragoso/columbus/internal/clock"
 )
 
 // ParseLevel maps COLUMBUS_LOG_LEVEL to a slog level (default info).

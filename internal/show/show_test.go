@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelfragoso/columbus/internal/clock"
-	"github.com/rafaelfragoso/columbus/internal/config"
-	"github.com/rafaelfragoso/columbus/internal/contract"
-	"github.com/rafaelfragoso/columbus/internal/extract"
-	"github.com/rafaelfragoso/columbus/internal/index"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/clock"
+	"github.com/orafaelfragoso/columbus/internal/config"
+	"github.com/orafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/extract"
+	"github.com/orafaelfragoso/columbus/internal/index"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 func buildShower(t *testing.T, files map[string]string) *Shower {

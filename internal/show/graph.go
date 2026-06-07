@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // defaultGraphCap bounds how many file nodes `show graph` returns by default.

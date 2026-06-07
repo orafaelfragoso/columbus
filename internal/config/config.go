@@ -11,7 +11,7 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/contract"
 )
 
 // FileName is the local config file name.

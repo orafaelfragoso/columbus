@@ -8,10 +8,10 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/rafaelfragoso/columbus/internal/clock"
-	"github.com/rafaelfragoso/columbus/internal/extract"
-	"github.com/rafaelfragoso/columbus/internal/gitrepo"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/clock"
+	"github.com/orafaelfragoso/columbus/internal/extract"
+	"github.com/orafaelfragoso/columbus/internal/gitrepo"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // Mode selects an indexing strategy.

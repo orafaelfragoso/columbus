@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/contract"
 )
 
 // Info describes the git context of a working directory.

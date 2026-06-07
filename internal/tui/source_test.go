@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelfragoso/columbus/internal/clock"
-	"github.com/rafaelfragoso/columbus/internal/memory"
-	"github.com/rafaelfragoso/columbus/internal/store"
-	"github.com/rafaelfragoso/columbus/internal/work"
+	"github.com/orafaelfragoso/columbus/internal/clock"
+	"github.com/orafaelfragoso/columbus/internal/memory"
+	"github.com/orafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/work"
 )
 
 // newSeededSource opens a fresh store, seeds one epic with two tasks (one done)

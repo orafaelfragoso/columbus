@@ -9,8 +9,8 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
-	"github.com/rafaelfragoso/columbus/internal/gitrepo"
+	"github.com/orafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/gitrepo"
 )
 
 // candidate is a file selected for (potential) indexing.

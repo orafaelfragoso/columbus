@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelfragoso/columbus/internal/clock"
-	"github.com/rafaelfragoso/columbus/internal/ids"
+	"github.com/orafaelfragoso/columbus/internal/clock"
+	"github.com/orafaelfragoso/columbus/internal/ids"
 )
 
 // runIn executes the CLI with an isolated workdir and data dir.

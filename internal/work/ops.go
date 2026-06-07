@@ -3,8 +3,8 @@ package work
 import (
 	"strings"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // EpicAddParams are the inputs to EpicAdd.

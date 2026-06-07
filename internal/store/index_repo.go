@@ -3,7 +3,7 @@ package store
 import (
 	"strconv"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/contract"
 )
 
 // FileRecord is a file row to be written.

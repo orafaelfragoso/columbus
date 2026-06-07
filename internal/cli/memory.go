@@ -12,9 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
-	"github.com/rafaelfragoso/columbus/internal/memory"
-	"github.com/rafaelfragoso/columbus/internal/render"
+	"github.com/orafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/memory"
+	"github.com/orafaelfragoso/columbus/internal/render"
 )
 
 // cmdContext is the (background) context used for slog.Logger.Log calls.

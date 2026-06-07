@@ -3,8 +3,8 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/rafaelfragoso/columbus/internal/extract"
-	"github.com/rafaelfragoso/columbus/internal/index"
+	"github.com/orafaelfragoso/columbus/internal/extract"
+	"github.com/orafaelfragoso/columbus/internal/index"
 )
 
 func newIndexCmd(env *Env) *cobra.Command {

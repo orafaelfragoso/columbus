@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelfragoso/columbus/internal/clock"
-	"github.com/rafaelfragoso/columbus/internal/ids"
+	"github.com/orafaelfragoso/columbus/internal/clock"
+	"github.com/orafaelfragoso/columbus/internal/ids"
 )
 
 // envForProject builds an Env sharing one workdir and data dir across calls.

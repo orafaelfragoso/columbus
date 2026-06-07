@@ -23,7 +23,7 @@ SQLite are C). `ripgrep` is recommended (the search fast-path); `git` is the
 only hard runtime dependency.
 
 ```sh
-git clone https://github.com/rafaelfragoso/columbus
+git clone https://github.com/orafaelfragoso/columbus
 cd columbus
 make build       # -> dist/columbus
 make install     # -> ~/.local/bin/columbus (override with PREFIX=/usr/local/bin)

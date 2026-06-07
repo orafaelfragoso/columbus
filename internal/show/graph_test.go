@@ -3,7 +3,7 @@ package show
 import (
 	"testing"
 
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // seedGraph writes three files (impl a + b, test a_test) with a resolved import

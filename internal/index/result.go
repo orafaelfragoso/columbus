@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/rafaelfragoso/columbus/internal/render"
+	"github.com/orafaelfragoso/columbus/internal/render"
 )
 
 // IndexResult is the typed result of an index operation.

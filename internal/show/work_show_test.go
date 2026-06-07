@@ -3,8 +3,8 @@ package show
 import (
 	"testing"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 func TestShowEpicDetail(t *testing.T) {

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelfragoso/columbus/internal/clock"
-	"github.com/rafaelfragoso/columbus/internal/config"
-	"github.com/rafaelfragoso/columbus/internal/extract"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/clock"
+	"github.com/orafaelfragoso/columbus/internal/config"
+	"github.com/orafaelfragoso/columbus/internal/extract"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 func git(t *testing.T, dir string, args ...string) {

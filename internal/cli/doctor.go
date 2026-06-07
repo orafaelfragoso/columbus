@@ -3,7 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/rafaelfragoso/columbus/internal/doctor"
+	"github.com/orafaelfragoso/columbus/internal/doctor"
 )
 
 func newDoctorCmd(env *Env) *cobra.Command {

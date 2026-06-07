@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelfragoso/columbus/internal/clock"
-	"github.com/rafaelfragoso/columbus/internal/config"
-	"github.com/rafaelfragoso/columbus/internal/extract"
-	"github.com/rafaelfragoso/columbus/internal/index"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/clock"
+	"github.com/orafaelfragoso/columbus/internal/config"
+	"github.com/orafaelfragoso/columbus/internal/extract"
+	"github.com/orafaelfragoso/columbus/internal/index"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // buildIndexedStore creates a git repo, indexes it, and returns an open store.

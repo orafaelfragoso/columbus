@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // ExportSchemaVersion is the version of the export document format. v2 added

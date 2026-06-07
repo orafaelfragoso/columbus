@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
-	"github.com/rafaelfragoso/columbus/internal/extract"
-	"github.com/rafaelfragoso/columbus/internal/live"
-	"github.com/rafaelfragoso/columbus/internal/logging"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/extract"
+	"github.com/orafaelfragoso/columbus/internal/live"
+	"github.com/orafaelfragoso/columbus/internal/logging"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // maxSymbolBlocks caps how many definitions `show symbol` prints.

@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/rafaelfragoso/columbus/internal/config"
-	"github.com/rafaelfragoso/columbus/internal/logging"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/config"
+	"github.com/orafaelfragoso/columbus/internal/logging"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // projectContext bundles the loaded config, an open store and a project logger.

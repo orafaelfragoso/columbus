@@ -5,9 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rafaelfragoso/columbus/internal/extract"
-	"github.com/rafaelfragoso/columbus/internal/grep"
-	"github.com/rafaelfragoso/columbus/internal/search"
+	"github.com/orafaelfragoso/columbus/internal/extract"
+	"github.com/orafaelfragoso/columbus/internal/grep"
+	"github.com/orafaelfragoso/columbus/internal/search"
 )
 
 func newSearchCmd(env *Env) *cobra.Command {

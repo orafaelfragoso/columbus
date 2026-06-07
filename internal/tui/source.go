@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/rafaelfragoso/columbus/internal/memory"
-	"github.com/rafaelfragoso/columbus/internal/store"
-	"github.com/rafaelfragoso/columbus/internal/work"
+	"github.com/orafaelfragoso/columbus/internal/memory"
+	"github.com/orafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/work"
 )
 
 const (

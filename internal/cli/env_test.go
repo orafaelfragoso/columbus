@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/contract"
 )
 
 // resolveColor runs resolveRenderOptions with a non-TTY stdout and the given

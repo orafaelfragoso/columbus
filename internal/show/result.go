@@ -5,8 +5,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/rafaelfragoso/columbus/internal/render"
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/render"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // MemoryRef is a linked memory summary.

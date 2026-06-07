@@ -1,4 +1,4 @@
-module github.com/rafaelfragoso/columbus
+module github.com/orafaelfragoso/columbus
 
 go 1.26.2
 

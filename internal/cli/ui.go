@@ -7,13 +7,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rafaelfragoso/columbus/internal/extract"
-	"github.com/rafaelfragoso/columbus/internal/gitrepo"
-	"github.com/rafaelfragoso/columbus/internal/grep"
-	"github.com/rafaelfragoso/columbus/internal/index"
-	"github.com/rafaelfragoso/columbus/internal/memory"
-	"github.com/rafaelfragoso/columbus/internal/search"
-	"github.com/rafaelfragoso/columbus/internal/tui"
+	"github.com/orafaelfragoso/columbus/internal/extract"
+	"github.com/orafaelfragoso/columbus/internal/gitrepo"
+	"github.com/orafaelfragoso/columbus/internal/grep"
+	"github.com/orafaelfragoso/columbus/internal/index"
+	"github.com/orafaelfragoso/columbus/internal/memory"
+	"github.com/orafaelfragoso/columbus/internal/search"
+	"github.com/orafaelfragoso/columbus/internal/tui"
 )
 
 // newUICmd builds `columbus ui`: a full-screen, read-mostly dashboard over the

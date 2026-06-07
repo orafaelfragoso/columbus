@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelfragoso/columbus/internal/extract"
+	"github.com/orafaelfragoso/columbus/internal/extract"
 )
 
 func lines(n int) []string {

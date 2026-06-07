@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rafaelfragoso/columbus/internal/render"
-	"github.com/rafaelfragoso/columbus/internal/work"
+	"github.com/orafaelfragoso/columbus/internal/render"
+	"github.com/orafaelfragoso/columbus/internal/work"
 )
 
 // withWorkManager opens the project and invokes fn with a work Manager, logging

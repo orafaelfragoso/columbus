@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelfragoso/columbus/internal/config"
-	"github.com/rafaelfragoso/columbus/internal/ids"
+	"github.com/orafaelfragoso/columbus/internal/config"
+	"github.com/orafaelfragoso/columbus/internal/ids"
 )
 
 func initGitRepo(t *testing.T, dir string) {

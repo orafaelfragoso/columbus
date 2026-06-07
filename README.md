@@ -6,9 +6,9 @@
 
 **The map your coding agent has been missing.**
 
-[![CI](https://github.com/rafaelfragoso/columbus/actions/workflows/ci.yml/badge.svg)](https://github.com/rafaelfragoso/columbus/actions/workflows/ci.yml)
-[![Release](https://github.com/rafaelfragoso/columbus/actions/workflows/release.yml/badge.svg)](https://github.com/rafaelfragoso/columbus/actions/workflows/release.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/rafaelfragoso/columbus.svg)](https://pkg.go.dev/github.com/rafaelfragoso/columbus)
+[![CI](https://github.com/orafaelfragoso/columbus/actions/workflows/ci.yml/badge.svg)](https://github.com/orafaelfragoso/columbus/actions/workflows/ci.yml)
+[![Release](https://github.com/orafaelfragoso/columbus/actions/workflows/release.yml/badge.svg)](https://github.com/orafaelfragoso/columbus/actions/workflows/release.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/orafaelfragoso/columbus.svg)](https://pkg.go.dev/github.com/orafaelfragoso/columbus)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </div>
@@ -69,7 +69,7 @@ Requires Go 1.26+ and a C compiler (cgo). Columbus is always built with
 ### `go install`
 
 ```sh
-CGO_ENABLED=1 go install -tags fts5 github.com/rafaelfragoso/columbus/cmd/columbus@latest
+CGO_ENABLED=1 go install -tags fts5 github.com/orafaelfragoso/columbus/cmd/columbus@latest
 ```
 
 Installs `columbus` into `$(go env GOPATH)/bin` — make sure that's on your `PATH`.

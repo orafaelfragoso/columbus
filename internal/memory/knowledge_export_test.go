@@ -3,7 +3,7 @@ package memory
 import (
 	"testing"
 
-	"github.com/rafaelfragoso/columbus/internal/store"
+	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
 // seedEpicWithTask seeds one epic (with a memory ref + events) and one child

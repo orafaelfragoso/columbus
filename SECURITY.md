@@ -10,7 +10,7 @@ latest released version. Please upgrade to the newest release before reporting.
 **Please do not open a public issue for security vulnerabilities.**
 
 Report privately via GitHub's
-[private vulnerability reporting](https://github.com/rafaelfragoso/columbus/security/advisories/new)
+[private vulnerability reporting](https://github.com/orafaelfragoso/columbus/security/advisories/new)
 ("Report a vulnerability" on the Security tab). If that is unavailable, email
 the maintainer at **rafaelfragosom@gmail.com**.
 

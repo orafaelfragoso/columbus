@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelfragoso/columbus/internal/clock"
+	"github.com/orafaelfragoso/columbus/internal/clock"
 )
 
 func TestDebugErrLogsOnlyNonNilErrors(t *testing.T) {

@@ -3,9 +3,9 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/rafaelfragoso/columbus/internal/extract"
-	"github.com/rafaelfragoso/columbus/internal/render"
-	"github.com/rafaelfragoso/columbus/internal/show"
+	"github.com/orafaelfragoso/columbus/internal/extract"
+	"github.com/orafaelfragoso/columbus/internal/render"
+	"github.com/orafaelfragoso/columbus/internal/show"
 )
 
 func newShowCmd(env *Env) *cobra.Command {

@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/rafaelfragoso/columbus/internal/render"
+	"github.com/orafaelfragoso/columbus/internal/render"
 )
 
 // GraphInfo is the 1-hop neighborhood of a result.

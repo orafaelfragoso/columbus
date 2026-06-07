@@ -11,7 +11,7 @@ import (
 
 	sqlite3 "github.com/mattn/go-sqlite3"
 
-	"github.com/rafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/contract"
 )
 
 // DB is an open Columbus database.

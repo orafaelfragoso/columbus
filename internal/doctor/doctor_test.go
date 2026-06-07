@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/rafaelfragoso/columbus/internal/config"
+	"github.com/orafaelfragoso/columbus/internal/config"
 )
 
 func paramsFor(t *testing.T, work string) Params {

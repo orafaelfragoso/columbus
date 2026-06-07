@@ -36,3 +36,9 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # cgo invokes `zig cc` from Go's read-only stdlib cwd, so zig cannot
+          # create its default local cache there (AccessDenied). setup-zig v2 no
+          # longer sets these for us (v1 did), so point both caches at a writable
+          # dir explicitly.
+          ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig-local-cache
+          ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache

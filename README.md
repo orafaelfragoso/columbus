@@ -11,6 +11,8 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/orafaelfragoso/columbus.svg)](https://pkg.go.dev/github.com/orafaelfragoso/columbus)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+📖 **[Documentation & Guides](https://github.com/orafaelfragoso/columbus/wiki)** · [Quick Start](https://github.com/orafaelfragoso/columbus/wiki/Quick-Start) · [Using with your agent](https://github.com/orafaelfragoso/columbus/wiki/Using-Columbus-with-Your-Agent)
+
 </div>
 
 Your coding agent is brilliant at reasoning and bad at locating and remembering.
@@ -96,6 +98,15 @@ columbus ui                      # full-screen dashboard (index, memory, epics, 
 Then point your agent at Columbus as a tool (see
 [Use it with your agent](#use-it-with-your-agent)). The agent stops grepping and
 starts asking; `columbus ui` gives *you* the live view of what it's doing.
+
+## Documentation
+
+Full guides and reference live in the **[Columbus Wiki](https://github.com/orafaelfragoso/columbus/wiki)**:
+
+- [Your First Index & Search](https://github.com/orafaelfragoso/columbus/wiki/Your-First-Index-and-Search) — guided tour with real output
+- [Using Columbus with Your Agent](https://github.com/orafaelfragoso/columbus/wiki/Using-Columbus-with-Your-Agent) — the skills model and `--json`/`--llm` contract
+- [Never Stale: Live Reconstruction](https://github.com/orafaelfragoso/columbus/wiki/Never-Stale-Live-Reconstruction) — why answers always match current code
+- [Command Reference](https://github.com/orafaelfragoso/columbus/wiki/Command-search) · [Configuration](https://github.com/orafaelfragoso/columbus/wiki/Configuration) · [FAQ](https://github.com/orafaelfragoso/columbus/wiki/FAQ)
 
 ## How it works
 

@@ -63,6 +63,31 @@ func TestDiscoverInsideRepo(t *testing.T) {
 	}
 }
 
+func TestBranchReturnsCurrentBranch(t *testing.T) {
+	dir := initRepo(t)
+	for _, args := range [][]string{
+		{"checkout", "-q", "-b", "feature-x"},
+		{"commit", "-q", "--allow-empty", "-m", "init"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	info, _ := Discover(dir)
+	if got := info.Branch(); got != "feature-x" {
+		t.Fatalf("Branch() = %q, want feature-x", got)
+	}
+}
+
+func TestBranchEmptyOutsideRepo(t *testing.T) {
+	info, _ := Discover(t.TempDir())
+	if got := info.Branch(); got != "" {
+		t.Fatalf("Branch() outside repo = %q, want empty", got)
+	}
+}
+
 func TestDiscoverOutsideRepo(t *testing.T) {
 	dir := t.TempDir()
 	info, err := Discover(dir)

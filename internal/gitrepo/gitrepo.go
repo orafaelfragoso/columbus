@@ -137,6 +137,23 @@ func (i Info) HeadOID() (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// Branch returns the current branch name (e.g. "main"). It is best-effort: an
+// empty string means not a repo, detached HEAD, or any git error — callers treat
+// the branch as cosmetic.
+func (i Info) Branch() string {
+	if !i.IsRepo {
+		return ""
+	}
+	out, err := run(i.context(), i.WorkDir, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return ""
+	}
+	if b := strings.TrimSpace(out); b != "HEAD" {
+		return b
+	}
+	return ""
+}
+
 // IsDirty reports whether the working tree has uncommitted changes (modified,
 // staged, or untracked-not-ignored). False outside a repo.
 func (i Info) IsDirty() (bool, error) {

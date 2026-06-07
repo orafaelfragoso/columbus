@@ -13,7 +13,7 @@ COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: build install uninstall test test-short vet fmt lint cover clean
+.PHONY: build install uninstall test test-short vet fmt lint cover clean release-check release-test
 
 build:
 	go build -tags '$(TAGS)' -ldflags '$(LDFLAGS)' -o dist/columbus ./cmd/columbus
@@ -45,3 +45,13 @@ cover:
 
 clean:
 	rm -rf dist coverage.out coverage.html
+
+# Validate the goreleaser config without building anything.
+release-check:
+	goreleaser check
+
+# Dry-run the full cross-compile release locally: same builds, archives, and
+# checksums CI produces, but no tag/publish required. Reproduces the CI zig
+# cross-compile (artifacts land in dist/). Needs goreleaser + zig on PATH.
+release-test:
+	goreleaser release --snapshot --clean

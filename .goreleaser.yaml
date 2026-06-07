@@ -1,8 +1,3 @@
-# goreleaser configuration for Columbus.
-#
-# cgo is always on (tree-sitter + sqlite are C). Cross-compilation uses a single
-# Linux pipeline driven by `zig cc`, which ships a C toolchain for every target.
-# Run `goreleaser release --clean` on a tag in CI (see .github/workflows/release.yml).
 version: 2
 
 project_name: columbus
@@ -15,15 +10,9 @@ builds:
   - id: columbus
     main: ./cmd/columbus
     binary: columbus
+    builder: go
     env:
       - CGO_ENABLED=1
-      # goreleaser builds targets in parallel; a shared zig cache makes
-      # concurrent `zig cc` invocations race and fail with
-      # "unable to create compilation: AccessDenied" (seen on darwin/amd64).
-      # Give every target its own absolute, writable cache dir so they never
-      # collide. Absolute path also avoids cgo's read-only cwd problem.
-      - ZIG_LOCAL_CACHE_DIR={{ .Env.HOME }}/.cache/columbus-zig/local/{{ .Target }}
-      - ZIG_GLOBAL_CACHE_DIR={{ .Env.HOME }}/.cache/columbus-zig/global/{{ .Target }}
     flags:
       - -tags=fts5
     ldflags:
@@ -37,8 +26,13 @@ builds:
     goarch:
       - amd64
       - arm64
-    # Per-target C cross-compilers via zig. sqlite + tree-sitter compile cleanly
-    # under zig cc for all four targets.
+    # This pipeline runs on a macOS runner (see release.yml):
+    #   - darwin builds natively with Apple clang+SDK (handles both arches via
+    #     -arch). zig CANNOT cross-compile darwin reliably: macOS needs Apple
+    #     system libs (libresolv, frameworks) it doesn't bundle, so it fails
+    #     with "AccessDenied" (no SDK on Linux) or "unable to find ... 'resolv'".
+    #   - linux builds via zig cc, which ships a self-contained C toolchain and
+    #     needs no macOS SDK. Only linux needs an override; darwin uses host cc.
     overrides:
       - goos: linux
         goarch: amd64
@@ -50,16 +44,6 @@ builds:
         env:
           - CC=zig cc -target aarch64-linux-gnu
           - CXX=zig c++ -target aarch64-linux-gnu
-      - goos: darwin
-        goarch: amd64
-        env:
-          - CC=zig cc -target x86_64-macos-none
-          - CXX=zig c++ -target x86_64-macos-none
-      - goos: darwin
-        goarch: arm64
-        env:
-          - CC=zig cc -target aarch64-macos-none
-          - CXX=zig c++ -target aarch64-macos-none
 
 archives:
   - id: default

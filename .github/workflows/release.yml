@@ -10,7 +10,11 @@ permissions:
 
 jobs:
   goreleaser:
-    runs-on: ubuntu-latest
+    # macOS runner: darwin builds natively with Apple clang+SDK, linux builds
+    # via zig cc. zig cannot cross-compile darwin (needs Apple system libs it
+    # doesn't bundle), so building darwin natively here is what makes the
+    # release reliable. zig -> linux is self-contained and needs no macOS SDK.
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -22,7 +26,8 @@ jobs:
         with:
           go-version: "1.26"
 
-      # zig provides the C cross-compiler for every cgo target in one pipeline.
+      # zig provides the C cross-compiler for the linux cgo targets (darwin is
+      # built natively with the runner's Apple clang).
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
         with:

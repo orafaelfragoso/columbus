@@ -18,3 +18,4 @@ coverage.html
 
 # OS noise
 .DS_Store
+.claude

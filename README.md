@@ -52,7 +52,21 @@ columbus show file internal/store/store.go
 columbus show graph --json          # whole dependency graph as {nodes, edges}
 columbus show graph --role impl --in internal/store   # narrow + induce subgraph
 columbus doctor                     # environment + project health
+columbus ui                         # full-screen dashboard (index, memory, epics, tasks, graph)
 ```
+
+### Dashboard
+
+`columbus ui` opens a full-screen, read-mostly terminal dashboard over the
+indexed project: index freshness and counts, durable memory, epics & tasks
+(with task roll-up progress), and the dependency-graph hubs. It auto-refreshes,
+so external `columbus index`/agent edits appear on their own.
+
+Keys: `tab` switch pane · `↑/↓` (or `j/k`) navigate · `enter` detail (full body,
+refs, history) · `/` search across code, memory, epics & tasks · `esc` back ·
+`r` refresh · `R` reindex (in-process) · `?` help · `q` quit. It is a projection
+of the same data the JSON/LLM commands expose; only `R` writes (it runs the
+indexer) — epics/tasks/memory are read-only.
 
 ### Memory
 

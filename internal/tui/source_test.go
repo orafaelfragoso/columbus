@@ -81,6 +81,48 @@ func TestStoreSourceLoadMapsWorkRollupAndMemory(t *testing.T) {
 	}
 }
 
+func TestStoreSourceFallsBackToImportHubsWhenNoDepEdges(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "c.sqlite"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	// Go-style imports resolve to package paths, not file ids, so dep_edges stays
+	// empty. Three files import a shared internal package; one also imports stdlib.
+	put := func(path string, imports []string) {
+		err := db.WithTx(func(tx *store.Tx) error {
+			_, e := tx.PutFile(store.FileRecord{Path: path, Language: "go"}, nil, imports, nil, nil)
+			return e
+		})
+		if err != nil {
+			t.Fatalf("PutFile %s: %v", path, err)
+		}
+	}
+	const hub = "github.com/acme/proj/internal/store"
+	put("a.go", []string{hub, "fmt"})
+	put("b.go", []string{hub, "context"})
+	put("c.go", []string{hub})
+
+	snap, err := (&StoreSource{DB: db}).Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(snap.Hubs) == 0 {
+		t.Fatal("Hubs empty: import fallback did not populate the graph")
+	}
+	top := snap.Hubs[0]
+	if top.Path != hub || top.In != 3 {
+		t.Fatalf("top hub = %+v, want %s in-degree 3", top, hub)
+	}
+	// Stdlib specifiers (no dotted first segment) are excluded as graph noise.
+	for _, h := range snap.Hubs {
+		if h.Path == "fmt" || h.Path == "context" {
+			t.Fatalf("stdlib specifier %q should be excluded from hubs", h.Path)
+		}
+	}
+}
+
 func TestStoreSourceDetailRendersEpicMarkdown(t *testing.T) {
 	src := newSeededSource(t)
 

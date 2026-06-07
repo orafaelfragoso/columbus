@@ -89,6 +89,30 @@ func (s *StoreSource) Load() (Snapshot, error) {
 	for _, e := range depEdges {
 		inDeg[e.To]++
 	}
+	hubs := topHubs(inDeg)
+	if len(hubs) == 0 {
+		// Package-based languages (notably Go) import package paths, not single
+		// files, so the indexer can't resolve them to file ids and dep_edges is
+		// empty. Fall back to raw import specifiers so the graph still surfaces
+		// the project's most-depended-on modules.
+		imports, err := s.DB.AllImports()
+		if err != nil {
+			return Snapshot{}, err
+		}
+		hubs = topHubs(specifierInDegree(imports))
+	}
+
+	return Snapshot{
+		Branch: s.Branch, Head: meta.IndexedHead, Dirty: meta.Dirty, LastIndexedAt: meta.LastIndexedAt,
+		Files: meta.FilesCount, Symbols: meta.SymbolsCount, Edges: len(depEdges) + len(testLinks),
+		Memories: memTotal, MemCounts: memCounts,
+		Epics: epicRows, Tasks: taskRows, Mems: memRows, Hubs: hubs,
+	}, nil
+}
+
+// topHubs turns an in-degree map into the highest-degree HubRows, ordered by
+// in-degree then path, capped at maxHubRows.
+func topHubs(inDeg map[string]int) []HubRow {
 	hubs := make([]HubRow, 0, len(inDeg))
 	for path, in := range inDeg {
 		hubs = append(hubs, HubRow{Path: path, In: in})
@@ -102,13 +126,37 @@ func (s *StoreSource) Load() (Snapshot, error) {
 	if len(hubs) > maxHubRows {
 		hubs = hubs[:maxHubRows]
 	}
+	return hubs
+}
 
-	return Snapshot{
-		Branch: s.Branch, Head: meta.IndexedHead, Dirty: meta.Dirty, LastIndexedAt: meta.LastIndexedAt,
-		Files: meta.FilesCount, Symbols: meta.SymbolsCount, Edges: len(depEdges) + len(testLinks),
-		Memories: memTotal, MemCounts: memCounts,
-		Epics: epicRows, Tasks: taskRows, Mems: memRows, Hubs: hubs,
-	}, nil
+// specifierInDegree counts how many files import each module specifier. Stdlib
+// imports (a bare or slash-only path whose first segment has no dot, e.g. "fmt"
+// or "os/signal") are excluded as graph noise; if that leaves nothing, every
+// specifier is counted so the panel is never needlessly empty.
+func specifierInDegree(imports []store.ImportRow) map[string]int {
+	inDeg := map[string]int{}
+	for _, im := range imports {
+		if isModuleSpecifier(im.Specifier) {
+			inDeg[im.Specifier]++
+		}
+	}
+	if len(inDeg) == 0 {
+		for _, im := range imports {
+			inDeg[im.Specifier]++
+		}
+	}
+	return inDeg
+}
+
+// isModuleSpecifier reports whether an import path looks like a third-party or
+// module-local dependency (its first path segment contains a dot, as in a host
+// name) rather than a standard-library import.
+func isModuleSpecifier(spec string) bool {
+	first := spec
+	if i := strings.IndexByte(spec, '/'); i >= 0 {
+		first = spec[:i]
+	}
+	return strings.Contains(first, ".")
 }
 
 // Detail renders a full markdown document for an epic or task: body, tags,

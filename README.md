@@ -4,7 +4,7 @@
 
 <br />
 
-**The map your coding agent has been missing.**
+**The navigator your coding agent has been missing.**
 
 [![CI](https://github.com/orafaelfragoso/columbus/actions/workflows/ci.yml/badge.svg)](https://github.com/orafaelfragoso/columbus/actions/workflows/ci.yml)
 [![Release](https://github.com/orafaelfragoso/columbus/actions/workflows/release.yml/badge.svg)](https://github.com/orafaelfragoso/columbus/actions/workflows/release.yml)

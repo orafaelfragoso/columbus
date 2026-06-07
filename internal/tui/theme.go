@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"image/color"
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // palette — a dark, violet-accented theme shared across the dashboard.
@@ -27,11 +29,11 @@ var (
 	selBg = lipgloss.Color("#241d3d")
 )
 
-func st(c lipgloss.Color, bold bool) lipgloss.Style {
+func st(c color.Color, bold bool) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(c).Bold(bold)
 }
 
-func statusColor(s string) lipgloss.Color {
+func statusColor(s string) color.Color {
 	switch s {
 	case "done":
 		return cGreen
@@ -51,7 +53,7 @@ func statusBadge(s string) string {
 	return lipgloss.NewStyle().Foreground(c).Render("● " + statusLabel(s))
 }
 
-func kindColor(k string) lipgloss.Color {
+func kindColor(k string) color.Color {
 	switch k {
 	case "decision":
 		return cViolet
@@ -73,9 +75,17 @@ func panel(w, h int, title, meta, body string, focused bool) string {
 	if rows < 0 {
 		rows = 0
 	}
+	inner := w - 4 // box width (w-2) minus horizontal padding (1 each side)
 	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
 	if len(lines) > rows {
 		lines = lines[:rows]
+	}
+	// Clamp every body line to the inner width so an over-wide table row can
+	// never wrap and push past — i.e. "eat" — the panel's right border.
+	for i, ln := range lines {
+		if lipgloss.Width(ln) > inner {
+			lines[i] = ansi.Truncate(ln, inner, "")
+		}
 	}
 	titleColor := cBright
 	border := cBorder
@@ -83,20 +93,22 @@ func panel(w, h int, title, meta, body string, focused bool) string {
 		titleColor, border = cViolet, cViolet
 	}
 	head := spread(w-4, st(titleColor, true).Render(title), st(cMuted, false).Render(meta))
+	// In lipgloss v2 Width/Height are the TOTAL box size (border included), so we
+	// pass the full w×h rather than subtracting the border as we did in v1.
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).BorderForeground(border).
-		Width(w-2).Height(h-2).Padding(0, 1).
+		Width(w).Height(h).Padding(0, 1).
 		Render(head + "\n\n" + strings.Join(lines, "\n"))
 }
 
-func card(w int, accent lipgloss.Color, label, value, sub string) string {
+func card(w int, accent color.Color, label, value, sub string) string {
 	in := w - 4
 	content := cell(label, in, cMuted) + "\n\n" +
 		padR(st(accent, true).Render(truncate(value, in)), in) + "\n" +
 		cell(sub, in, cMuted)
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).BorderForeground(cBorder).
-		Width(w-2).Height(4).Padding(0, 1).
+		Width(w).Height(cardHeight).Padding(0, 1).
 		Render(content)
 }
 
@@ -104,7 +116,7 @@ func card(w int, accent lipgloss.Color, label, value, sub string) string {
 const cardHeight = 6
 
 // hGap is the number of blank columns between side-by-side boxes.
-const hGap = 2
+const hGap = 1
 
 // joinH lays boxes out horizontally with hGap blank columns between them.
 func joinH(boxes ...string) string {
@@ -134,7 +146,7 @@ func vspace(w, h int) string {
 	return strings.Join(rows, "\n")
 }
 
-func bar(pct float64, width int, fg lipgloss.Color) string {
+func bar(pct float64, width int, fg color.Color) string {
 	if width < 1 {
 		width = 1
 	}
@@ -162,7 +174,7 @@ func spread(width int, left, right string) string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
-func cell(s string, w int, c lipgloss.Color) string {
+func cell(s string, w int, c color.Color) string {
 	return padR(lipgloss.NewStyle().Foreground(c).Render(truncate(s, w)), w)
 }
 

@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"io"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // Run starts the interactive dashboard against the given Source and blocks until
-// the user quits.
+// the user quits. The alternate screen is requested declaratively via the View.
 func Run(src Source, opts ...Option) error {
-	_, err := tea.NewProgram(New(src, opts...), tea.WithAltScreen()).Run()
+	_, err := tea.NewProgram(New(src, opts...)).Run()
 	return err
 }
 
@@ -24,6 +24,6 @@ func PrintFrame(w io.Writer, src Source, width, height int) error {
 	m := New(src)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: height})
 	next, _ = next.(Model).Update(snapshotMsg{snap: snap})
-	_, err = fmt.Fprintln(w, next.(Model).View())
+	_, err = fmt.Fprintln(w, next.(Model).View().Content)
 	return err
 }

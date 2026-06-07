@@ -5,15 +5,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/table"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type focus int
@@ -65,6 +66,16 @@ type searchResultMsg struct {
 	err  error
 }
 
+// hitItem adapts a SearchHit to the bubbles/list item interface so results are
+// navigable (↑/↓ to select, enter to open the selected hit's detail).
+type hitItem struct{ hit SearchHit }
+
+func (h hitItem) Title() string {
+	return st(grainColor(h.hit.Grain), true).Render(strings.ToUpper(h.hit.Grain)) + "  " + h.hit.Title
+}
+func (h hitItem) Description() string { return h.hit.Where }
+func (h hitItem) FilterValue() string { return h.hit.Title }
+
 // Model is the root dashboard model. All logic lives in Update and the pure
 // rebuild/dims helpers; View is a thin renderer (so it stays testable).
 type Model struct {
@@ -92,12 +103,12 @@ type Model struct {
 	showDetail  bool
 	detailTitle string
 
-	search *huh.Form
+	searchInput  textinput.Model
+	searchActive bool
 
 	searchFn    func(string) ([]SearchHit, error)
 	searching   bool
-	results     viewport.Model
-	resultsHits []SearchHit
+	results     list.Model
 	showResults bool
 
 	refreshEvery time.Duration
@@ -111,18 +122,36 @@ func New(src Source, opts ...Option) Model {
 	sp.Spinner = spinner.Dot
 	sp.Style = st(cViolet, false)
 
+	ti := textinput.New()
+	ti.Placeholder = "type a query…"
+	ti.Prompt = "› "
+	ti.CharLimit = 120
+	ts := textinput.DefaultDarkStyles()
+	ts.Focused.Prompt = st(cViolet, true)
+	ts.Focused.Text = st(cBright, false)
+	ts.Focused.Placeholder = st(cMuted, false)
+	ti.SetStyles(ts)
+
+	res := list.New(nil, resultsDelegate(), 0, 0)
+	res.SetShowTitle(false)
+	res.SetShowStatusBar(false)
+	res.SetShowHelp(false)
+	res.SetFilteringEnabled(false)
+	res.SetShowPagination(true)
+
 	m := Model{
-		src:     src,
-		keys:    defaultKeys(),
-		help:    help.New(),
-		spin:    sp,
-		epics:   newTable(),
-		tasks:   newTable(),
-		mem:     newTable(),
-		graph:   newTable(),
-		detail:  viewport.New(0, 0),
-		results: viewport.New(0, 0),
-		loading: true,
+		src:         src,
+		keys:        defaultKeys(),
+		help:        help.New(),
+		spin:        sp,
+		epics:       newTable(),
+		tasks:       newTable(),
+		mem:         newTable(),
+		graph:       newTable(),
+		detail:      viewport.New(),
+		results:     res,
+		searchInput: ti,
+		loading:     true,
 	}
 	for _, o := range opts {
 		o(&m)
@@ -130,15 +159,24 @@ func New(src Source, opts ...Option) Model {
 	return m
 }
 
+// resultsDelegate styles the search-results list with a clear selection accent.
+func resultsDelegate() list.DefaultDelegate {
+	d := list.NewDefaultDelegate()
+	d.Styles.SelectedTitle = d.Styles.SelectedTitle.Foreground(cBright).BorderForeground(cViolet)
+	d.Styles.SelectedDesc = d.Styles.SelectedDesc.Foreground(cViolet).BorderForeground(cViolet)
+	d.Styles.NormalTitle = d.Styles.NormalTitle.Foreground(cText)
+	d.Styles.NormalDesc = d.Styles.NormalDesc.Foreground(cMuted)
+	return d
+}
+
 func newTable() table.Model {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).BorderForeground(cBorder).BorderBottom(true).
 		Padding(0, 0).Bold(false).Foreground(cMuted)
-	s.Selected = s.Selected.Foreground(cBright).Background(selBg).Bold(false)
+	s.Selected = s.Selected.Foreground(cBright).Background(selBg).Bold(true)
 	s.Cell = s.Cell.Padding(0, 0).Foreground(cText)
-	t := table.New(table.WithStyles(s))
-	return t
+	return table.New(table.WithStyles(s))
 }
 
 func (m Model) Init() tea.Cmd {
@@ -173,11 +211,18 @@ func (m Model) runSearch(query string) tea.Cmd {
 	}
 }
 
+// modalOpen reports whether any overlay (search input, results, detail) is up.
+// While one is open the background auto-refresh is suspended so it can't wipe
+// the overlay's content out from under the user.
+func (m Model) modalOpen() bool {
+	return m.searchActive || m.showResults || m.showDetail
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
-		m.help.Width = msg.Width
+		m.help.SetWidth(msg.Width)
 		m.rebuild()
 		return m, nil
 
@@ -205,15 +250,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 			return m, nil
 		}
-		m.resultsHits = msg.hits
-		m.results.SetContent(renderResults(msg.hits, m.results.Width))
-		m.results.GotoTop()
+		items := make([]list.Item, 0, len(msg.hits))
+		for _, h := range msg.hits {
+			items = append(items, hitItem{hit: h})
+		}
+		m.results.SetItems(items)
+		// Size the list to its content (capped), so a couple of hits don't render
+		// a mostly-empty full-height modal.
+		d := m.dims()
+		const perItem = 3 // DefaultDelegate: title + description + spacing
+		m.results.SetSize(d.detailW, min(d.detailH, max(perItem, len(items)*perItem+2)))
+		m.results.Select(0)
 		m.showResults = true
 		return m, nil
 
 	case tickMsg:
 		cmds := []tea.Cmd{m.tick()} // always reschedule
-		if !m.loading && !m.reindexing && !m.searching && m.search == nil {
+		if !m.loading && !m.reindexing && !m.searching && !m.modalOpen() {
 			cmds = append(cmds, m.load()) // silent reload (no spinner)
 		}
 		return m, tea.Batch(cmds...)
@@ -227,42 +280,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.load() // reload snapshot; snapshotMsg clears loading
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
 	return m, nil
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Search overlay owns all input while active. Esc always cancels it,
-	// regardless of how huh maps keys internally.
-	if m.search != nil {
-		if msg.Type == tea.KeyEsc {
-			m.search = nil
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// The search input owns all keystrokes while active. Esc cancels; Enter runs
+	// the query synchronously (no async form handshake to lose). Everything else
+	// is forwarded to the text input so it accumulates the query.
+	if m.searchActive {
+		switch msg.Code {
+		case tea.KeyEscape:
+			m.searchActive = false
+			m.searchInput.Blur()
 			return m, nil
-		}
-		form, cmd := m.search.Update(msg)
-		if f, ok := form.(*huh.Form); ok {
-			m.search = f
-		}
-		switch m.search.State {
-		case huh.StateCompleted:
-			// Read the value from the form (not a bound pointer): the Model is
-			// copied every Update, so a &field binding would point at a stale copy.
-			q := strings.TrimSpace(m.search.GetString("query"))
-			m.search = nil
+		case tea.KeyEnter:
+			q := strings.TrimSpace(m.searchInput.Value())
+			m.searchActive = false
+			m.searchInput.Blur()
 			if q != "" && m.searchFn != nil {
 				m.searching = true
 				return m, tea.Batch(m.runSearch(q), m.spin.Tick)
 			}
-		case huh.StateAborted:
-			m.search = nil
+			return m, nil
 		}
+		var cmd tea.Cmd
+		m.searchInput, cmd = m.searchInput.Update(msg)
 		return m, cmd
 	}
 
-	// Esc is handled first so it always backs out of a mode (results or detail).
-	if msg.Type == tea.KeyEsc {
+	// Esc is handled next so it always backs out of a mode (results or detail).
+	if msg.Code == tea.KeyEscape {
 		switch {
 		case m.showResults:
 			m.showResults = false
@@ -292,11 +342,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.reindexing = true
 		return m, tea.Batch(m.runReindex(), m.spin.Tick)
 	case key.Matches(msg, m.keys.Search):
-		m.openSearch()
-		return m, m.search.Init()
+		return m, m.openSearch()
 	}
 
+	// The results overlay is a navigable list: enter opens the selected hit,
+	// everything else (↑/↓, paging) is forwarded to the list.
 	if m.showResults {
+		if msg.Code == tea.KeyEnter {
+			m.openHitDetail()
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.results, cmd = m.results.Update(msg)
 		return m, cmd
@@ -360,14 +415,39 @@ func (m *Model) applyFocus() {
 	}
 }
 
-func (m *Model) openSearch() {
-	m.search = huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Key("query").
-				Title("Search code, memory, epics & tasks"),
-		),
-	).WithWidth(min(70, m.w-8)).WithShowHelp(false)
+func (m *Model) openSearch() tea.Cmd {
+	m.searchInput.SetValue("")
+	m.searchInput.SetWidth(max(20, min(60, m.w-14)))
+	m.searchActive = true
+	return m.searchInput.Focus()
+}
+
+// openHitDetail opens the rich detail for the currently selected search result.
+func (m *Model) openHitDetail() {
+	it, ok := m.results.SelectedItem().(hitItem)
+	if !ok {
+		return
+	}
+	h := it.hit
+	var kind, md string
+	var id int64
+	switch h.Grain {
+	case "memory":
+		kind, id = "memory", idNum(h.ID)
+		md = "# " + h.Title + "\n\n`" + h.Where + "`\n"
+	case "epic":
+		kind, id = "epic", idNum(h.ID)
+		md = "# " + h.Title + "\n\n`" + h.Where + "`\n"
+	case "task":
+		kind, id = "task", idNum(h.ID)
+		md = "# " + h.Title + "\n\n`" + h.Where + "`\n"
+	default:
+		md = "# " + h.Title + "\n\n**" + strings.ToUpper(h.Grain) + "** · `" + h.Where + "`\n"
+	}
+	m.detailTitle = h.Title
+	m.setDetail(kind, id, md)
+	m.showResults = false
+	m.showDetail = true
 }
 
 func (m *Model) openDetail() {
@@ -406,9 +486,14 @@ func (m *Model) openDetail() {
 		m.detailTitle = hb.Path
 		md = graphMarkdown(hb) // kind stays "" → DetailSource skipped, rendered as-is
 	}
-	// Prefer a rich detail (full body, tags, refs, history) when the Source
-	// supports it; otherwise the Snapshot summary above stands in.
-	if ds, ok := m.src.(DetailSource); ok {
+	m.setDetail(kind, id, md)
+	m.showDetail = true
+}
+
+// setDetail renders markdown (preferring a rich DetailSource document when the
+// source supports the kind) into the detail viewport.
+func (m *Model) setDetail(kind string, id int64, md string) {
+	if ds, ok := m.src.(DetailSource); ok && kind != "" {
 		if rich, err := ds.Detail(kind, id); err == nil && strings.TrimSpace(rich) != "" {
 			md = rich
 		}
@@ -416,7 +501,7 @@ func (m *Model) openDetail() {
 	out := md
 	if r, err := glamour.NewTermRenderer(
 		glamour.WithStandardStyle("dark"),
-		glamour.WithWordWrap(max(20, m.detail.Width)),
+		glamour.WithWordWrap(max(20, m.detail.Width())),
 	); err == nil {
 		if s, e := r.Render(md); e == nil {
 			out = s
@@ -424,7 +509,6 @@ func (m *Model) openDetail() {
 	}
 	m.detail.SetContent(out)
 	m.detail.GotoTop()
-	m.showDetail = true
 }
 
 func (m Model) selectedEpic() (EpicRow, bool) {
@@ -499,11 +583,9 @@ func (m *Model) rebuild() {
 	m.graph.SetHeight(maxInt(1, d.botH-5))
 	m.graph.SetCursor(clampCursor(m.graph.Cursor(), len(m.snap.Hubs)))
 
-	m.detail = viewport.New(d.detailW, d.detailH)
-	m.results = viewport.New(d.detailW, d.detailH)
-	if len(m.resultsHits) > 0 {
-		m.results.SetContent(renderResults(m.resultsHits, d.detailW))
-	}
+	m.detail.SetWidth(d.detailW)
+	m.detail.SetHeight(d.detailH)
+	m.results.SetSize(d.detailW, d.detailH)
 
 	m.applyFocus()
 	m.syncTasks()

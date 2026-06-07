@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/charmbracelet/bubbles/key"
+import "charm.land/bubbles/v2/key"
 
 // keyMap is the dashboard's global keybindings. It implements help.KeyMap so the
 // footer help bar is generated from the same source of truth that handles input.

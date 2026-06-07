@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type fakeSource struct{ snap Snapshot }
@@ -52,8 +52,9 @@ func readyModel(t *testing.T, m Model) Model {
 	return next.(Model)
 }
 
-func runes(s string) tea.KeyMsg      { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
-func ktype(t tea.KeyType) tea.KeyMsg { return tea.KeyMsg{Type: t} }
+func runes(s string) tea.KeyPressMsg { return tea.KeyPressMsg{Code: []rune(s)[0], Text: s} }
+func ktype(c rune) tea.KeyPressMsg   { return tea.KeyPressMsg{Code: c} }
+func shiftTab() tea.KeyPressMsg      { return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift} }
 
 func TestQuitKeyReturnsQuitCommand(t *testing.T) {
 	m := ready(t)
@@ -80,7 +81,7 @@ func TestTabCyclesForwardThroughFourPanes(t *testing.T) {
 
 func TestShiftTabCyclesBackward(t *testing.T) {
 	m := ready(t) // starts on epics
-	next, _ := m.Update(ktype(tea.KeyShiftTab))
+	next, _ := m.Update(shiftTab())
 	if f := next.(Model).focus; f != focusGraph {
 		t.Fatalf("shift+tab from epics = %v, want graph (wrap back)", f)
 	}
@@ -149,7 +150,7 @@ func TestEnterOpensDetailForSelectedEpic(t *testing.T) {
 		t.Fatalf("detail title = %q, want epic_001", nm.detailTitle)
 	}
 	// esc closes it.
-	back, _ := nm.Update(ktype(tea.KeyEsc))
+	back, _ := nm.Update(ktype(tea.KeyEscape))
 	if back.(Model).showDetail {
 		t.Fatal("esc did not close the detail pane")
 	}
@@ -158,8 +159,8 @@ func TestEnterOpensDetailForSelectedEpic(t *testing.T) {
 func TestSearchKeyOpensForm(t *testing.T) {
 	m := ready(t)
 	next, _ := m.Update(runes("/"))
-	if next.(Model).search == nil {
-		t.Fatal("/ did not open the search form")
+	if !next.(Model).searchActive {
+		t.Fatal("/ did not open the search input")
 	}
 }
 
@@ -167,12 +168,45 @@ func TestEscCancelsSearchForm(t *testing.T) {
 	m := ready(t)
 	next, _ := m.Update(runes("/"))
 	nm := next.(Model)
-	if nm.search == nil {
-		t.Fatal("/ did not open the search form")
+	if !nm.searchActive {
+		t.Fatal("/ did not open the search input")
 	}
-	back, _ := nm.Update(ktype(tea.KeyEsc))
-	if back.(Model).search != nil {
-		t.Fatal("esc did not cancel the search form")
+	back, _ := nm.Update(ktype(tea.KeyEscape))
+	if back.(Model).searchActive {
+		t.Fatal("esc did not cancel the search input")
+	}
+}
+
+func TestEnterInSearchInputStartsSearch(t *testing.T) {
+	m := readyModel(t, New(fakeSource{sampleSnap()},
+		WithSearch(func(string) ([]SearchHit, error) { return nil, nil })))
+
+	m = mustUpdate(m, runes("/"))   // open the search input
+	m = mustUpdate(m, runes("wal")) // type a query
+	if got := m.searchInput.Value(); got != "wal" {
+		t.Fatalf("typed value = %q, want wal (input not capturing keystrokes)", got)
+	}
+
+	next, cmd := m.Update(ktype(tea.KeyEnter))
+	nm := next.(Model)
+	if nm.searchActive {
+		t.Fatal("enter did not close the search input")
+	}
+	if !nm.searching {
+		t.Fatal("enter did not start a search")
+	}
+	if cmd == nil {
+		t.Fatal("enter did not return a search command")
+	}
+}
+
+func TestEnterOnEmptyQueryDoesNotSearch(t *testing.T) {
+	m := readyModel(t, New(fakeSource{sampleSnap()},
+		WithSearch(func(string) ([]SearchHit, error) { return nil, nil })))
+	m = mustUpdate(m, runes("/"))
+	next, _ := m.Update(ktype(tea.KeyEnter))
+	if nm := next.(Model); nm.searching {
+		t.Fatal("enter on an empty query should not start a search")
 	}
 }
 
@@ -205,9 +239,55 @@ func TestGlobalSearchInvokesSearchFnAndShowsResults(t *testing.T) {
 		t.Fatalf("results modal missing hits:\n%s", view)
 	}
 	// esc closes the results modal.
-	back, _ := nm.Update(ktype(tea.KeyEsc))
+	back, _ := nm.Update(ktype(tea.KeyEscape))
 	if back.(Model).showResults {
 		t.Fatal("esc did not close the results modal")
+	}
+}
+
+func TestResultsAreNavigableAndOpenDetail(t *testing.T) {
+	hits := []SearchHit{
+		{Grain: "memory", ID: "mem_001", Title: "use WAL", Where: "mem_001"},
+		{Grain: "symbol", Title: "NewServer", Where: "internal/api/server.go:42"},
+	}
+	m := readyModel(t, New(fakeSource{sampleSnap()},
+		WithSearch(func(string) ([]SearchHit, error) { return hits, nil })))
+	m = mustUpdate(m, searchResultMsg{hits: hits})
+	if !m.showResults {
+		t.Fatal("results modal did not open")
+	}
+
+	// The modal is composited OVER the dashboard: background chrome stays visible.
+	out := m.View().Content
+	if !strings.Contains(out, "Columbus") || !strings.Contains(out, "Search —") {
+		t.Fatalf("results should overlay (not replace) the dashboard:\n%s", out)
+	}
+
+	// ↓ selects the second hit; enter opens its detail and closes the results.
+	m = mustUpdate(m, ktype(tea.KeyDown), ktype(tea.KeyEnter))
+	if m.showResults || !m.showDetail {
+		t.Fatalf("enter on a result should open detail: results=%v detail=%v", m.showResults, m.showDetail)
+	}
+	if !strings.Contains(m.detailTitle, "NewServer") {
+		t.Fatalf("navigation opened the wrong hit: detailTitle=%q", m.detailTitle)
+	}
+}
+
+func TestRefreshTickDoesNotCloseAnOpenModal(t *testing.T) {
+	hits := []SearchHit{{Grain: "symbol", Title: "NewServer", Where: "a.go:1"}}
+	m := readyModel(t, New(fakeSource{sampleSnap()},
+		WithRefreshInterval(time.Millisecond),
+		WithSearch(func(string) ([]SearchHit, error) { return hits, nil })))
+	m = mustUpdate(m, searchResultMsg{hits: hits})
+
+	// A background refresh tick must not reload (which would rebuild and wipe the
+	// results out from under the user) while a modal is open.
+	_, cmd := m.Update(tickMsg{})
+	if cmd == nil {
+		t.Fatal("tick should still reschedule itself")
+	}
+	if !m.showResults || len(m.results.Items()) != 1 {
+		t.Fatal("a refresh tick wiped the open results modal")
 	}
 }
 
@@ -297,7 +377,7 @@ func TestViewRendersDashboardAcrossSizes(t *testing.T) {
 		m := New(fakeSource{sampleSnap()})
 		next, _ := m.Update(sz)
 		next, _ = next.(Model).Update(snapshotMsg{snap: sampleSnap()})
-		out := next.(Model).View()
+		out := next.(Model).View().Content
 		if !strings.Contains(out, "Columbus") || !strings.Contains(out, "EPICS") {
 			t.Fatalf("View at %dx%d missing expected chrome", sz.Width, sz.Height)
 		}

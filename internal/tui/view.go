@@ -2,10 +2,12 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // layout holds the computed rectangle sizes for the current window.
@@ -33,27 +35,15 @@ func (m Model) dims() layout {
 	return layout{
 		epicsW: epicsW, tasksW: midAvail - epicsW, midH: midH,
 		memW: memW, graphW: botAvail - memW, botH: rem - midH,
-		detailW: min(w-8, 100), detailH: h * 7 / 10,
+		detailW: min(w-12, 96), detailH: h * 7 / 10,
 	}
 }
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	if m.w == 0 || m.h == 0 {
-		return "loading…"
+		return altView("loading…")
 	}
-	if m.search != nil {
-		return modal(m.w, m.h, "Search", m.search.View())
-	}
-	if m.showResults {
-		body := m.results.View() + "\n\n" + st(cMuted, false).Render("esc back · ↑/↓ scroll")
-		title := fmt.Sprintf("Search — %d results", len(m.resultsHits))
-		return modal(m.w, m.h, title, body)
-	}
-	if m.showDetail {
-		body := m.detail.View() + "\n\n" + st(cMuted, false).Render("esc back · ↑/↓ scroll")
-		return modal(m.w, m.h, m.detailTitle, body)
-	}
-	return lipgloss.JoinVertical(lipgloss.Left,
+	dash := lipgloss.JoinVertical(lipgloss.Left,
 		m.headerView(),
 		"",
 		m.cardsView(),
@@ -63,6 +53,69 @@ func (m Model) View() string {
 		m.botView(),
 		m.footerView(),
 	)
+
+	switch {
+	case m.searchActive:
+		return altView(m.overlay(dash, m.searchBox()))
+	case m.showResults:
+		return altView(m.overlay(dash, m.resultsBox()))
+	case m.showDetail:
+		return altView(m.overlay(dash, m.detailBox()))
+	}
+	return altView(dash)
+}
+
+// altView wraps content in a full-screen (alternate-buffer) tea.View.
+func altView(content string) tea.View {
+	v := tea.NewView(content)
+	v.AltScreen = true
+	return v
+}
+
+// overlay composites a floating box centered over the dashboard background using
+// lipgloss's Canvas/Layer compositor, so the dashboard stays visible behind the
+// modal instead of being replaced by it.
+func (m Model) overlay(bg, box string) string {
+	bw, bh := lipgloss.Width(box), lipgloss.Height(box)
+	x := max(0, (m.w-bw)/2)
+	y := max(0, (m.h-bh)/2)
+	comp := lipgloss.NewCompositor(
+		lipgloss.NewLayer(bg).Z(0),
+		lipgloss.NewLayer(box).X(x).Y(y).Z(1),
+	)
+	cv := lipgloss.NewCanvas(m.w, m.h)
+	cv.Compose(comp)
+	return cv.Render()
+}
+
+// box renders a rounded, violet-bordered modal box sized to hold text of the
+// given inner width.
+func box(title, body string, innerW int) string {
+	// v2 Width is the total box width (border + padding included): innerW text +
+	// 2 padding + 2 border.
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).BorderForeground(cViolet).
+		Padding(0, 1).Width(innerW + 4).
+		Render(st(cBright, true).Render(title) + "\n\n" + body)
+}
+
+func (m Model) searchBox() string {
+	d := m.dims()
+	body := st(cMuted, false).Render("Search code, memory, epics & tasks") + "\n\n" +
+		m.searchInput.View() + "\n\n" +
+		st(cMuted, false).Render("enter search · esc cancel")
+	return box("Search", body, d.detailW)
+}
+
+func (m Model) resultsBox() string {
+	title := fmt.Sprintf("Search — %d results", len(m.results.Items()))
+	body := m.results.View() + "\n" + st(cMuted, false).Render("↑/↓ select · enter open · esc back")
+	return box(title, body, m.dims().detailW)
+}
+
+func (m Model) detailBox() string {
+	body := m.detail.View() + "\n\n" + st(cMuted, false).Render("esc back · ↑/↓ scroll")
+	return box(m.detailTitle, body, m.dims().detailW)
 }
 
 func (m Model) headerView() string {
@@ -130,7 +183,7 @@ func (m Model) botView() string {
 	d := m.dims()
 	memBox := panel(d.memW, d.botH, "MEMORY",
 		fmt.Sprintf("%d entries", m.snap.Memories), m.mem.View(), m.focus == focusMemory)
-	graphBox := panel(d.graphW, d.botH, "GRAPH — top imported files",
+	graphBox := panel(d.graphW, d.botH, "GRAPH — most imported",
 		"by in-degree", m.graph.View(), m.focus == focusGraph)
 	return joinH(memBox, graphBox)
 }
@@ -248,7 +301,7 @@ func memTableRows(mems []MemRow, inner int) []table.Row {
 func graphColumns(inner int) []table.Column {
 	impW := 16
 	return []table.Column{
-		{Title: "File", Width: colW(inner - impW)},
+		{Title: "Module", Width: colW(inner - impW)},
 		{Title: "Imports", Width: impW},
 	}
 }
@@ -266,9 +319,20 @@ func graphTableRows(hubs []HubRow, inner int) []table.Row {
 	for _, h := range hubs {
 		imp := bar(float64(h.In)/float64(maxIn), 9, cPink) +
 			padL(st(cMuted, false).Render(fmt.Sprintf("%d", h.In)), impW-9)
-		rows = append(rows, table.Row{truncate(h.Path, fileW), imp})
+		rows = append(rows, table.Row{truncate(shortModule(h.Path), fileW), imp})
 	}
 	return rows
+}
+
+// shortModule trims a long import path to its last two segments for display
+// (e.g. "github.com/acme/proj/internal/store" → "internal/store"), keeping the
+// part that identifies the package. Short paths are returned unchanged.
+func shortModule(path string) string {
+	segs := strings.Split(path, "/")
+	if len(segs) <= 2 {
+		return path
+	}
+	return strings.Join(segs[len(segs)-2:], "/")
 }
 
 // ---- detail markdown (rendered by glamour) ----
@@ -311,27 +375,7 @@ func taskMarkdown(t TaskRow, s Snapshot) string {
 	return b.String()
 }
 
-// renderResults formats global search hits as a colored, aligned list.
-func renderResults(hits []SearchHit, width int) string {
-	if len(hits) == 0 {
-		return st(cMuted, false).Render("no matches")
-	}
-	tagW := 8
-	whereW := width / 3
-	titleW := width - tagW - whereW - 2
-	if titleW < 8 {
-		titleW = 8
-	}
-	var b strings.Builder
-	for _, h := range hits {
-		tag := padR(st(grainColor(h.Grain), false).Render(strings.ToUpper(h.Grain)), tagW)
-		b.WriteString(tag + " " + cell(h.Title, titleW, cText) + " " +
-			st(cMuted, false).Render(truncate(h.Where, whereW)) + "\n")
-	}
-	return b.String()
-}
-
-func grainColor(grain string) lipgloss.Color {
+func grainColor(grain string) color.Color {
 	switch grain {
 	case "memory":
 		return cViolet
@@ -346,12 +390,4 @@ func grainColor(grain string) lipgloss.Color {
 	default:
 		return cMuted
 	}
-}
-
-func modal(w, h int, title, body string) string {
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).BorderForeground(cViolet).Padding(0, 1).
-		Width(min(w-4, 100)).
-		Render(st(cBright, true).Render(title) + "\n\n" + body)
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
 }

@@ -60,7 +60,7 @@ func TestLiveResolvesLineRangeAndSnippet(t *testing.T) {
 	e := buildLiveEngine(t, map[string]string{
 		"svc.go": "package svc\n\n// header comment\nfunc Handler() string {\n\treturn \"ok\"\n}\n",
 	})
-	res, err := e.Search(Query{Text: "Handler", Kind: KindCode, Limit: 10, ContextLines: 0})
+	res, err := e.Search(Query{Text: "Handler", Kind: KindCode, Limit: 10, ContextLines: 0, Snippets: true})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -78,6 +78,33 @@ func TestLiveResolvesLineRangeAndSnippet(t *testing.T) {
 	}
 	if h.Snippet == "" || !strings.Contains(h.Snippet, "func Handler()") {
 		t.Errorf("snippet missing body: %q", h.Snippet)
+	}
+}
+
+// The default (locate-first) projection resolves live line ranges but omits the
+// code body, so agents get a cheap ranked map and pull bodies on demand.
+func TestLiveResolvesRangeWithoutSnippetByDefault(t *testing.T) {
+	e := buildLiveEngine(t, map[string]string{
+		"svc.go": "package svc\n\n// header comment\nfunc Handler() string {\n\treturn \"ok\"\n}\n",
+	})
+	res, err := e.Search(Query{Text: "Handler", Kind: KindCode, Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	var h *Hit
+	for i := range res.Hits {
+		if res.Hits[i].Name == "Handler" {
+			h = &res.Hits[i]
+		}
+	}
+	if h == nil {
+		t.Fatal("Handler not found")
+	}
+	if h.StartLine != 4 {
+		t.Errorf("StartLine = %d, want 4 (live-resolved even without snippet)", h.StartLine)
+	}
+	if h.Snippet != "" {
+		t.Errorf("snippet should be empty by default, got %q", h.Snippet)
 	}
 }
 

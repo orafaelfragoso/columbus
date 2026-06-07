@@ -103,10 +103,20 @@ func Enclosing(syms []extract.Symbol, line int) (extract.Symbol, bool) {
 	return best, found
 }
 
-// Snippet extracts lines [start-ctx, end+ctx] (1-based, clamped), capped.
+// Snippet extracts lines [start-ctx, end+ctx] (1-based, clamped), capped at the
+// default MaxSnippetLines.
 func Snippet(lines []string, start, end, ctx int) string {
+	return SnippetN(lines, start, end, ctx, MaxSnippetLines)
+}
+
+// SnippetN is Snippet with an explicit line cap. A maxLines <= 0 falls back to
+// MaxSnippetLines, so callers can tighten (but not unbound) snippet size.
+func SnippetN(lines []string, start, end, ctx, maxLines int) string {
 	if start <= 0 || len(lines) == 0 {
 		return ""
+	}
+	if maxLines <= 0 {
+		maxLines = MaxSnippetLines
 	}
 	from := start - ctx
 	if from < 1 {
@@ -116,8 +126,8 @@ func Snippet(lines []string, start, end, ctx int) string {
 	if to > len(lines) {
 		to = len(lines)
 	}
-	if to-from+1 > MaxSnippetLines {
-		to = from + MaxSnippetLines - 1
+	if to-from+1 > maxLines {
+		to = from + maxLines - 1
 	}
 	return strings.Join(lines[from-1:to], "\n")
 }

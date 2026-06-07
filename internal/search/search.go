@@ -70,6 +70,14 @@ type Query struct {
 	Limit        int
 	ContextLines int
 	Graph        bool
+	// Snippets attaches code-body snippets to each hit. The default (false) is
+	// locate-first: locations, signatures, scores and graph edges only, which is
+	// far cheaper for agents. Bodies are pulled on demand via `show` or by
+	// opting in here. Line ranges are always resolved regardless.
+	Snippets bool
+	// SnippetLines caps snippet length when Snippets is set (0 = default
+	// MaxSnippetLines).
+	SnippetLines int
 }
 
 // Engine runs searches against a store. When WorkDir, Registry and Searcher are
@@ -182,7 +190,7 @@ func (e *Engine) Search(q Query) (SearchResult, error) {
 	}
 
 	if e.liveEnabled() {
-		e.resolveLive(res.Hits, q.ContextLines)
+		e.resolveLive(res.Hits, q.ContextLines, q.Snippets, q.SnippetLines)
 	}
 	if err := e.enrichGraph(res.Hits, q.Graph); err != nil {
 		return SearchResult{}, err
@@ -410,7 +418,7 @@ func workID(ownerType string, id int64) string {
 
 // resolveLive fills in current line ranges and snippets by re-parsing the
 // working tree (the stored line numbers are never trusted as truth).
-func (e *Engine) resolveLive(hits []Hit, ctx int) {
+func (e *Engine) resolveLive(hits []Hit, ctx int, snippets bool, maxLines int) {
 	cache := live.New(e.WorkDir, e.Registry)
 	for i := range hits {
 		h := &hits[i]
@@ -421,9 +429,13 @@ func (e *Engine) resolveLive(hits []Hit, ctx int) {
 		if !ok {
 			continue
 		}
+		// Line ranges are always resolved live (cheap, and the locator's primary
+		// value); the code body is only attached when snippets are requested.
 		h.StartLine = sym.StartLine
 		h.EndLine = sym.EndLine
-		h.Snippet = live.Snippet(cache.SourceLines(h.Path), sym.StartLine, sym.EndLine, ctx)
+		if snippets {
+			h.Snippet = live.SnippetN(cache.SourceLines(h.Path), sym.StartLine, sym.EndLine, ctx, maxLines)
+		}
 	}
 }
 

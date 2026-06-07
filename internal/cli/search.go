@@ -16,6 +16,8 @@ func newSearchCmd(env *Env) *cobra.Command {
 		limit        int
 		contextLines int
 		graph        bool
+		snippets     bool
+		snippetLines int
 	)
 	cmd := &cobra.Command{
 		Use:   "search <query>",
@@ -49,6 +51,8 @@ func newSearchCmd(env *Env) *cobra.Command {
 				Limit:        limit,
 				ContextLines: contextLines,
 				Graph:        graph,
+				Snippets:     snippets,
+				SnippetLines: snippetLines,
 			})
 			if err != nil {
 				proj.Logger.Info("search failed", "error", err.Error())
@@ -64,5 +68,7 @@ func newSearchCmd(env *Env) *cobra.Command {
 	f.IntVar(&limit, "limit", 20, "maximum number of results")
 	f.IntVar(&contextLines, "context-lines", 3, "lines of context around matched ranges")
 	f.BoolVar(&graph, "graph", false, "include 1-hop graph neighbors (imports/imported-by)")
+	f.BoolVar(&snippets, "snippets", false, "attach code bodies (default: locations, signatures, scores and graph edges only)")
+	f.IntVar(&snippetLines, "snippet-lines", 0, "cap snippet length in lines when --snippets is set (0 = default 60)")
 	return cmd
 }

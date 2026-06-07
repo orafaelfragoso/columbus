@@ -66,7 +66,7 @@ func TestShowSymbolShowsAllMatchesWithLiveRange(t *testing.T) {
 		"a.go": "package a\n\nfunc Handler() {}\n",
 		"b.go": "package b\n\nfunc Handler() {}\n",
 	})
-	res, err := s.Symbol("Handler", "", 0)
+	res, err := s.Symbol("Handler", "", 0, 0)
 	if err != nil {
 		t.Fatalf("Symbol: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestShowSymbolInFilter(t *testing.T) {
 		"a.go": "package a\n\nfunc Handler() {}\n",
 		"b.go": "package b\n\nfunc Handler() {}\n",
 	})
-	res, err := s.Symbol("Handler", "a.go", 0)
+	res, err := s.Symbol("Handler", "a.go", 0, 0)
 	if err != nil {
 		t.Fatalf("Symbol: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestShowSymbolInFilter(t *testing.T) {
 
 func TestShowSymbolNotFoundSuggests(t *testing.T) {
 	s := buildShower(t, map[string]string{"a.go": "package a\n\nfunc Handler() {}\n"})
-	_, err := s.Symbol("Handlerr", "", 0)
+	_, err := s.Symbol("Handlerr", "", 0, 0)
 	assertCode(t, err, contract.CodeNotFound)
 	var ce *contract.Error
 	errors.As(err, &ce)

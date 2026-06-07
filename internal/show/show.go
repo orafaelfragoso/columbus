@@ -33,7 +33,7 @@ func (s *Shower) logErr(op string, err error) { logging.DebugErr(s.Logger, op, e
 
 // Symbol returns all definitions matching name, optionally narrowed to files
 // whose path contains `in`.
-func (s *Shower) Symbol(name, in string, contextLines int) (SymbolResult, error) {
+func (s *Shower) Symbol(name, in string, contextLines, maxLines int) (SymbolResult, error) {
 	rows, err := s.DB.SymbolsByName(name)
 	if err != nil {
 		return SymbolResult{}, err
@@ -70,7 +70,7 @@ func (s *Shower) Symbol(name, in string, contextLines int) (SymbolResult, error)
 		if sym, ok := cache.FindSymbol(r.Path, r.Name, r.Container, r.Kind); ok {
 			b.StartLine = sym.StartLine
 			b.EndLine = sym.EndLine
-			b.Snippet = live.Snippet(cache.SourceLines(r.Path), sym.StartLine, sym.EndLine, contextLines)
+			b.Snippet = live.SnippetN(cache.SourceLines(r.Path), sym.StartLine, sym.EndLine, contextLines, maxLines)
 		}
 		tests, err := s.DB.TestsOf(r.FileID)
 		s.logErr("TestsOf", err)

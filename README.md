@@ -148,9 +148,16 @@ The contract the agent consumes:
 Both are pure projections of the same typed result as the human `text` output —
 they can never silently diverge.
 
+Search is **locate-first**: by default it returns ranked locations, signatures,
+scores and graph edges — the cheap "where to look" map — and omits code bodies.
+Add `--snippets` to attach bodies inline (capped with `--snippet-lines N`), or
+pull a specific body on demand with `columbus show symbol`. Exact line ranges are
+always present, so an agent can read first and drill down only where it matters.
+
 ```sh
-columbus search "where do we parse config" --llm    # drop straight into context
-columbus search NewServer --graph --json            # ranked hits + 1-hop imports, machine-readable
+columbus search "where do we parse config" --llm             # ranked locations, no bodies (cheap)
+columbus search "where do we parse config" --llm --snippets  # same, with code bodies inline
+columbus search NewServer --graph --json                     # ranked hits + 1-hop imports, machine-readable
 ```
 
 > [!NOTE]

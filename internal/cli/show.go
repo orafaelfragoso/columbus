@@ -64,18 +64,20 @@ func withShower(env *Env, cmdName string, fn func(*show.Shower) (render.Payload,
 func newShowSymbolCmd(env *Env) *cobra.Command {
 	var in string
 	var contextLines int
+	var snippetLines int
 	cmd := &cobra.Command{
 		Use:   "symbol <name>",
 		Short: "Show all definitions of a symbol",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withShower(env, "show.symbol", func(s *show.Shower) (render.Payload, error) {
-				return s.Symbol(args[0], in, contextLines)
+				return s.Symbol(args[0], in, contextLines, snippetLines)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&in, "in", "", "narrow to files whose path contains this substring")
 	cmd.Flags().IntVar(&contextLines, "context-lines", 3, "lines of context around the definition")
+	cmd.Flags().IntVar(&snippetLines, "snippet-lines", 0, "cap snippet length in lines (0 = default 60)")
 	return cmd
 }
 

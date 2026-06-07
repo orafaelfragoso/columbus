@@ -106,25 +106,6 @@ changelog:
       - "^Merge pull request"
       - "^Merge branch"
 
-# Homebrew tap. ripgrep is a declared dependency (the search fast-path);
-# ast-grep stays optional; git is assumed present.
-brews:
-  - name: columbus
-    ids:
-      - default
-    repository:
-      owner: rafaelfragoso
-      name: homebrew-columbus
-    homepage: "https://github.com/rafaelfragoso/columbus"
-    description: "Local-only, deterministic code-context server for code agents"
-    license: "MIT"
-    dependencies:
-      - name: ripgrep
-    test: |
-      system "#{bin}/columbus", "version"
-    install: |
-      bin.install "columbus"
-
 release:
   draft: false
   prerelease: auto

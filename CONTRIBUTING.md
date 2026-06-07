@@ -93,8 +93,7 @@ A `feat:` triggers a minor bump, `fix:`/`perf:` a patch bump, and a
 ## Releasing (maintainers)
 
 Releases are cut by pushing a semver tag. CI (goreleaser) builds the
-cross-compiled binaries, checksums, GitHub release notes, and the Homebrew tap
-bump automatically.
+cross-compiled binaries, checksums, and GitHub release notes automatically.
 
 ```sh
 git tag v1.2.0

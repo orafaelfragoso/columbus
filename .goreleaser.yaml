@@ -17,6 +17,13 @@ builds:
     binary: columbus
     env:
       - CGO_ENABLED=1
+      # goreleaser builds targets in parallel; a shared zig cache makes
+      # concurrent `zig cc` invocations race and fail with
+      # "unable to create compilation: AccessDenied" (seen on darwin/amd64).
+      # Give every target its own absolute, writable cache dir so they never
+      # collide. Absolute path also avoids cgo's read-only cwd problem.
+      - ZIG_LOCAL_CACHE_DIR={{ .Env.HOME }}/.cache/columbus-zig/local/{{ .Target }}
+      - ZIG_GLOBAL_CACHE_DIR={{ .Env.HOME }}/.cache/columbus-zig/global/{{ .Target }}
     flags:
       - -tags=fts5
     ldflags:

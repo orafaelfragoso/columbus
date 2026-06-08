@@ -46,6 +46,11 @@ const (
 	CodeNotFound          Code = "NOT_FOUND"
 	CodeStoreError        Code = "STORE_ERROR"
 	CodeDependencyMissing Code = "DEPENDENCY_MISSING"
+	// CodeRuntimeMissing means a required native runtime (onnxruntime /
+	// tokenizers) could not be loaded.
+	CodeRuntimeMissing Code = "RUNTIME_MISSING"
+	// CodeEmbedFailure means an embedding session run or text encode failed.
+	CodeEmbedFailure Code = "EMBED_FAILURE"
 )
 
 // codeExit is the authoritative code->exit mapping from the plan.
@@ -60,6 +65,8 @@ var codeExit = map[Code]ExitCode{
 	CodeNotFound:          ExitRuntime,
 	CodeStoreError:        ExitRuntime,
 	CodeDependencyMissing: ExitRuntime,
+	CodeRuntimeMissing:    ExitRuntime,
+	CodeEmbedFailure:      ExitRuntime,
 }
 
 // Exit returns the process exit code for this error code. Unknown codes map

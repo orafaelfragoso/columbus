@@ -16,6 +16,10 @@ coverage.html
 # Columbus local config (also git-excluded by `init`, belt-and-suspenders here)
 .columbus.json
 
+# Embedding model weights: fetched via `make fetch-model`, never committed raw
+# (too large). tokenizer.json next to it is small and committed.
+/internal/embed/assets/model.onnx
+
 # OS noise
 .DS_Store
 .claude

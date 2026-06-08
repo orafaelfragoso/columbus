@@ -9,9 +9,11 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/charmbracelet/x/ansi v0.11.7
+	github.com/daulet/tokenizers v1.27.0
 	github.com/mattn/go-sqlite3 v1.14.45
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/cobra v1.10.2
+	github.com/yalue/onnxruntime_go v1.31.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 

@@ -106,6 +106,16 @@ func (d *DB) SearchVectors(qvec []float32, ownerTypes []string, k int) ([]VecHit
 	return out, rows.Err()
 }
 
+// VectorCount returns the number of stored embedding chunks across all owner
+// types and models.
+func (d *DB) VectorCount() (int, error) {
+	var n int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM chunk_meta`).Scan(&n); err != nil {
+		return 0, storeErr(err)
+	}
+	return n, nil
+}
+
 // ChunkSHA returns the stored content_sha for an owner under model, and whether
 // a row exists. Callers use this to skip re-embedding unchanged content.
 func (d *DB) ChunkSHA(ownerType string, ownerID int64, model string) (string, bool, error) {

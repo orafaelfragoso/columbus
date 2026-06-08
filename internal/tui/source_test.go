@@ -47,6 +47,11 @@ func newSeededSource(t *testing.T) *StoreSource {
 	if _, err := mm.Add(memory.AddParams{Kind: "decision", Title: "use WAL"}); err != nil {
 		t.Fatalf("memory.Add: %v", err)
 	}
+	vec := make([]float32, 256)
+	vec[0] = 1
+	if err := db.UpsertVector("memory", 1, "test-model", "sha", vec); err != nil {
+		t.Fatalf("UpsertVector: %v", err)
+	}
 	return &StoreSource{DB: db, Memory: mm, Branch: "main"}
 }
 
@@ -70,15 +75,30 @@ func TestStoreSourceLoadMapsWorkRollupAndMemory(t *testing.T) {
 	if len(snap.Tasks) != 2 {
 		t.Fatalf("tasks = %d, want 2", len(snap.Tasks))
 	}
+	if len(snap.Stories) != 1 {
+		t.Fatalf("stories = %d, want 1", len(snap.Stories))
+	}
+	if snap.Stories[0].IDStr != "story_001" || snap.Stories[0].EpicID != e.ID {
+		t.Fatalf("story row = %+v, want story_001 under epic_001", snap.Stories[0])
+	}
+	if snap.StoriesOpen() != 1 {
+		t.Fatalf("StoriesOpen = %d, want 1", snap.StoriesOpen())
+	}
 	if snap.TasksOpen() != 1 {
 		t.Fatalf("TasksOpen = %d, want 1", snap.TasksOpen())
 	}
 	if got := snap.TasksForEpic(e.ID); len(got) != 2 || got[0].IDStr != "task_001" {
 		t.Fatalf("TasksForEpic = %+v", got)
 	}
+	if got := snap.TasksForStory(snap.Stories[0].ID); len(got) != 2 || got[0].IDStr != "task_001" {
+		t.Fatalf("TasksForStory = %+v", got)
+	}
 
 	if snap.Memories != 1 || len(snap.Mems) != 1 || snap.Mems[0].Kind != "decision" {
 		t.Fatalf("memory = %d %+v", snap.Memories, snap.Mems)
+	}
+	if snap.Embeddings != 1 {
+		t.Fatalf("Embeddings = %d, want 1", snap.Embeddings)
 	}
 	if snap.Branch != "main" {
 		t.Fatalf("branch = %q, want main", snap.Branch)
@@ -142,5 +162,19 @@ func TestStoreSourceDetailRendersEpicMarkdown(t *testing.T) {
 
 	if md, err := src.Detail("epic", 999); err != nil || md != "" {
 		t.Fatalf("unknown epic detail = %q, err=%v; want empty/no-error", md, err)
+	}
+}
+
+func TestStoreSourceDetailRendersStoryMarkdown(t *testing.T) {
+	src := newSeededSource(t)
+
+	md, err := src.Detail("story", 1)
+	if err != nil {
+		t.Fatalf("Detail: %v", err)
+	}
+	for _, want := range []string{"# Parsers", "`story_001`", "`epic_001`", "## Tasks", "`task_001`"} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("story detail missing %q:\n%s", want, md)
+		}
 	}
 }

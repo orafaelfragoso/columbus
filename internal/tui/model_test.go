@@ -25,16 +25,20 @@ func (f fakeDetailSource) Detail(string, int64) (string, error) { return f.detai
 
 func sampleSnap() Snapshot {
 	return Snapshot{
-		Branch: "main", Head: "abc1234", Files: 214, Symbols: 1883, Edges: 642, Memories: 1,
+		Branch: "main", Head: "abc1234", Files: 214, Symbols: 1883, Embeddings: 7, Edges: 642, Memories: 1,
 		MemCounts: map[string]int{"decision": 1},
 		Epics: []EpicRow{
 			{ID: 1, IDStr: "epic_001", Title: "Indexing core", Status: "in_progress", Done: 1, Total: 2},
 			{ID: 2, IDStr: "epic_002", Title: "Search ranking", Status: "todo", Done: 0, Total: 1},
 		},
+		Stories: []StoryRow{
+			{ID: 1, EpicID: 1, IDStr: "story_001", Title: "Parser coverage", Status: "in_progress"},
+			{ID: 2, EpicID: 2, IDStr: "story_002", Title: "Ranked search", Status: "todo"},
+		},
 		Tasks: []TaskRow{
-			{ID: 1, EpicID: 1, IDStr: "task_001", Title: "parse go", Status: "done"},
-			{ID: 2, EpicID: 1, IDStr: "task_002", Title: "symbol graph", Status: "todo"},
-			{ID: 3, EpicID: 2, IDStr: "task_003", Title: "rank cache", Status: "todo"},
+			{ID: 1, EpicID: 1, StoryID: 1, IDStr: "task_001", Title: "parse go", Status: "done"},
+			{ID: 2, EpicID: 1, StoryID: 1, IDStr: "task_002", Title: "symbol graph", Status: "todo"},
+			{ID: 3, EpicID: 2, StoryID: 2, IDStr: "task_003", Title: "rank cache", Status: "todo"},
 		},
 		Mems: []MemRow{{ID: "mem_001", Kind: "decision", Title: "use WAL"}},
 		Hubs: []HubRow{{Path: "internal/store/store.go", In: 5}},
@@ -57,58 +61,103 @@ func runes(s string) tea.KeyPressMsg { return tea.KeyPressMsg{Code: []rune(s)[0]
 func ktype(c rune) tea.KeyPressMsg   { return tea.KeyPressMsg{Code: c} }
 func shiftTab() tea.KeyPressMsg      { return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift} }
 
-func TestQuitKeyReturnsQuitCommand(t *testing.T) {
+func TestQuitKeyOpensConfirmationModal(t *testing.T) {
 	m := ready(t)
-	_, cmd := m.Update(runes("q"))
-	if cmd == nil {
-		t.Fatal("expected a command from q")
+	next, cmd := m.Update(runes("q"))
+	nm := next.(Model)
+	if cmd != nil {
+		t.Fatal("q should open confirmation without quitting immediately")
 	}
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatalf("q did not produce tea.Quit, got %T", cmd())
+	if !nm.confirmQuit {
+		t.Fatal("q did not open the quit confirmation")
+	}
+	if out := ansi.Strip(nm.View().Content); !strings.Contains(out, "Quit Columbus?") || !strings.Contains(out, "y confirm") {
+		t.Fatalf("quit confirmation not rendered:\n%s", out)
 	}
 }
 
-func TestTabCyclesForwardThroughFourPanes(t *testing.T) {
-	m := ready(t)
-	want := []focus{focusTasks, focusMemory, focusGraph, focusEpics}
-	for i, w := range want {
-		next, _ := m.Update(ktype(tea.KeyTab))
-		m = next.(Model)
-		if m.focus != w {
-			t.Fatalf("tab #%d focus = %v, want %v", i+1, m.focus, w)
+func TestQuitConfirmationCanBeCancelled(t *testing.T) {
+	m := mustUpdate(ready(t), runes("q"))
+	for _, key := range []tea.KeyPressMsg{runes("n"), ktype(tea.KeyEscape)} {
+		next, cmd := m.Update(key)
+		nm := next.(Model)
+		if cmd != nil {
+			t.Fatalf("%v should not quit", key)
+		}
+		if nm.confirmQuit {
+			t.Fatalf("%v should close quit confirmation", key)
+		}
+		m = mustUpdate(ready(t), runes("q"))
+	}
+}
+
+func TestQuitConfirmationAcceptsYAndEnter(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{runes("y"), ktype(tea.KeyEnter)} {
+		m := mustUpdate(ready(t), runes("q"))
+		next, cmd := m.Update(key)
+		if next.(Model).confirmQuit {
+			t.Fatalf("%v should close quit confirmation", key)
+		}
+		if cmd == nil {
+			t.Fatalf("%v did not return a quit command", key)
+		}
+		if _, ok := cmd().(tea.QuitMsg); !ok {
+			t.Fatalf("%v did not produce tea.Quit, got %T", key, cmd())
 		}
 	}
 }
 
-func TestShiftTabCyclesBackward(t *testing.T) {
-	m := ready(t) // starts on epics
-	next, _ := m.Update(shiftTab())
-	if f := next.(Model).focus; f != focusGraph {
-		t.Fatalf("shift+tab from epics = %v, want graph (wrap back)", f)
+func TestCtrlCStillReturnsQuitCommand(t *testing.T) {
+	m := ready(t)
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("expected a command from ctrl+c")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("ctrl+c did not produce tea.Quit, got %T", cmd())
 	}
 }
 
-func TestEnterOpensDetailForMemoryAndGraph(t *testing.T) {
+func TestTabCyclesBetweenMainAndWorkViews(t *testing.T) {
 	m := ready(t)
-	// Tab to memory, enter → detail titled with the memory id.
-	m = mustUpdate(m, ktype(tea.KeyTab), ktype(tea.KeyTab)) // epics→tasks→memory
-	if m.focus != focusMemory {
-		t.Fatalf("focus = %v, want memory", m.focus)
+	if m.activeTab != tabMain {
+		t.Fatalf("initial tab = %v, want main", m.activeTab)
 	}
+	next, _ := m.Update(ktype(tea.KeyTab))
+	m = next.(Model)
+	if m.activeTab != tabWork {
+		t.Fatalf("tab moved to %v, want work", m.activeTab)
+	}
+	next, _ = m.Update(ktype(tea.KeyTab))
+	m = next.(Model)
+	if m.activeTab != tabMain {
+		t.Fatalf("second tab moved to %v, want main", m.activeTab)
+	}
+}
+
+func TestShiftTabCyclesBackward(t *testing.T) {
+	m := ready(t) // starts on main
+	next, _ := m.Update(shiftTab())
+	if tab := next.(Model).activeTab; tab != tabWork {
+		t.Fatalf("shift+tab from main = %v, want work (wrap back)", tab)
+	}
+}
+
+func TestEnterOpensDetailForMemoryAndWorkItems(t *testing.T) {
+	m := ready(t)
 	md, _ := m.Update(ktype(tea.KeyEnter))
 	if mm := md.(Model); !mm.showDetail || !strings.Contains(mm.detailTitle, "mem_001") {
 		t.Fatalf("memory enter: showDetail=%v title=%q", mm.showDetail, mm.detailTitle)
 	}
 
-	// Tab to graph, enter → detail titled with the file path.
 	m = ready(t)
-	m = mustUpdate(m, ktype(tea.KeyTab), ktype(tea.KeyTab), ktype(tea.KeyTab)) // →graph
-	if m.focus != focusGraph {
-		t.Fatalf("focus = %v, want graph", m.focus)
+	m = mustUpdate(m, ktype(tea.KeyTab)) // work tab, epics selected by default
+	if m.activeTab != tabWork || m.workKind != workEpics {
+		t.Fatalf("active work state = %v/%v, want work/epics", m.activeTab, m.workKind)
 	}
-	gd, _ := m.Update(ktype(tea.KeyEnter))
-	if gm := gd.(Model); !gm.showDetail || !strings.Contains(gm.detailTitle, "store.go") {
-		t.Fatalf("graph enter: showDetail=%v title=%q", gm.showDetail, gm.detailTitle)
+	wd, _ := m.Update(ktype(tea.KeyEnter))
+	if wm := wd.(Model); !wm.showDetail || !strings.Contains(wm.detailTitle, "epic_001") {
+		t.Fatalf("work enter: showDetail=%v title=%q", wm.showDetail, wm.detailTitle)
 	}
 }
 
@@ -120,35 +169,65 @@ func mustUpdate(m Model, msgs ...tea.Msg) Model {
 	return m
 }
 
-func TestSnapshotPopulatesTasksForSelectedEpic(t *testing.T) {
+func TestSnapshotPopulatesWorkItemsForKanban(t *testing.T) {
 	m := ready(t)
-	// epic_001 is selected by default → its two tasks fill the task panel.
-	if len(m.curTasks) != 2 {
-		t.Fatalf("curTasks = %d, want 2 (epic_001's tasks)", len(m.curTasks))
+	m = mustUpdate(m, ktype(tea.KeyTab))
+	items := m.workItems()
+	if len(items) != 2 || items[0].IDStr != "epic_001" {
+		t.Fatalf("epic workItems = %+v, want epic_001 first", items)
 	}
 }
 
-func TestMovingEpicCursorResyncsTaskPanel(t *testing.T) {
+func TestWorkViewCyclesBetweenEpicsStoriesAndTasks(t *testing.T) {
 	m := ready(t)
-	next, _ := m.Update(runes("j")) // down to epic_002
-	nm := next.(Model)
-	if e, _ := nm.selectedEpic(); e.IDStr != "epic_002" {
-		t.Fatalf("after j, selected = %+v, want epic_002", e)
+	m = mustUpdate(m, ktype(tea.KeyTab))
+	if m.workKind != workEpics {
+		t.Fatalf("initial work kind = %v, want epics", m.workKind)
 	}
-	if len(nm.curTasks) != 1 {
-		t.Fatalf("curTasks = %d, want 1 (epic_002's task)", len(nm.curTasks))
+	m = mustUpdate(m, ktype(tea.KeyRight))
+	if m.workKind != workStories {
+		t.Fatalf("right moved work kind = %v, want stories", m.workKind)
+	}
+	items := m.workItems()
+	if len(items) != 2 || items[0].IDStr != "story_001" {
+		t.Fatalf("story workItems = %+v, want story_001 first", items)
+	}
+	m = mustUpdate(m, ktype(tea.KeyRight))
+	if m.workKind != workTasks {
+		t.Fatalf("second right moved work kind = %v, want tasks", m.workKind)
+	}
+	items = m.workItems()
+	if len(items) != 3 || items[0].IDStr != "task_001" {
+		t.Fatalf("task workItems = %+v, want task_001 first", items)
+	}
+	m = mustUpdate(m, ktype(tea.KeyLeft))
+	if m.workKind != workStories {
+		t.Fatalf("left moved work kind = %v, want stories", m.workKind)
 	}
 }
 
-func TestEnterOpensDetailForSelectedEpic(t *testing.T) {
+func TestWorkCursorMovesSelectedKanbanItem(t *testing.T) {
 	m := ready(t)
+	m = mustUpdate(m, ktype(tea.KeyTab), ktype(tea.KeyDown))
+	if m.workCursor != 1 {
+		t.Fatalf("workCursor after down = %d, want 1", m.workCursor)
+	}
+	item, ok := m.selectedWorkItem()
+	if !ok || item.IDStr != "epic_002" {
+		t.Fatalf("selectedWorkItem = %+v, %v; want epic_002", item, ok)
+	}
+}
+
+func TestEnterOpensDetailForSelectedWorkItem(t *testing.T) {
+	m := ready(t)
+	m = mustUpdate(m, ktype(tea.KeyTab), ktype(tea.KeyDown))
 	next, _ := m.Update(ktype(tea.KeyEnter))
 	nm := next.(Model)
 	if !nm.showDetail {
 		t.Fatal("enter did not open the detail pane")
 	}
-	if !strings.Contains(nm.detailTitle, "epic_001") {
-		t.Fatalf("detail title = %q, want epic_001", nm.detailTitle)
+	if !strings.Contains(nm.detailTitle, "epic_002") {
+		t.Fatalf("detail title = %q, want epic_002", nm.detailTitle)
 	}
 	// esc closes it.
 	back, _ := nm.Update(ktype(tea.KeyEscape))
@@ -271,6 +350,26 @@ func TestResultsAreNavigableAndOpenDetail(t *testing.T) {
 	}
 	if !strings.Contains(m.detailTitle, "NewServer") {
 		t.Fatalf("navigation opened the wrong hit: detailTitle=%q", m.detailTitle)
+	}
+}
+
+func TestSearchResultDetailShowsSnippetAndRank(t *testing.T) {
+	hits := []SearchHit{{
+		Grain: "symbol", Title: "NewServer", Where: "internal/api/server.go:42",
+		Score: 0.92, Snippet: "func NewServer() *Server {\n\treturn &Server{}\n}",
+	}}
+	m := readyModel(t, New(fakeSource{sampleSnap()},
+		WithSearch(func(string) ([]SearchHit, error) { return hits, nil })))
+	m = mustUpdate(m, searchResultMsg{hits: hits}, ktype(tea.KeyEnter))
+
+	if !m.showDetail {
+		t.Fatal("enter on result should open detail")
+	}
+	detail := ansi.Strip(m.detail.View())
+	for _, want := range []string{"rank 0.92", "func NewServer()", "return &Server{}"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("search result detail missing %q:\n%s", want, detail)
+		}
 	}
 }
 
@@ -416,23 +515,11 @@ func TestRefreshKeyEntersLoadingState(t *testing.T) {
 	}
 }
 
-func TestOnlyFocusedTableShowsSelectionHighlight(t *testing.T) {
+func TestMainMemoryTableShowsSelectionHighlight(t *testing.T) {
 	const selBgSeq = "48;2;36;29;61" // selBg (#241d3d) rendered as an ANSI background
-	m := ready(t)                    // focus starts on epics
-	if !strings.Contains(m.epics.View(), selBgSeq) {
-		t.Fatal("focused epics table should highlight its selected row")
-	}
-	if strings.Contains(m.graph.View(), selBgSeq) {
-		t.Fatalf("blurred graph table should not paint a selection highlight:\n%s", m.graph.View())
-	}
-
-	// Cycling focus moves the highlight; it must never leave two panes lit at once.
-	m = mustUpdate(m, ktype(tea.KeyTab), ktype(tea.KeyTab), ktype(tea.KeyTab)) // →graph
-	if !strings.Contains(m.graph.View(), selBgSeq) {
-		t.Fatal("graph table should highlight its selection once focused")
-	}
-	if strings.Contains(m.epics.View(), selBgSeq) {
-		t.Fatal("epics table should drop its highlight once blurred")
+	m := ready(t)
+	if !strings.Contains(m.mem.View(), selBgSeq) {
+		t.Fatal("main memory table should highlight its selected row")
 	}
 }
 
@@ -447,6 +534,67 @@ func TestSearchInProgressShowsHeaderFeedback(t *testing.T) {
 	}
 	if !strings.Contains(nm.View().Content, "searching") {
 		t.Fatalf("header should signal an in-flight search:\n%s", nm.View().Content)
+	}
+}
+
+func TestHeaderRendersTabsWithActiveBackgroundAndBranchOnRight(t *testing.T) {
+	const activeTabBgSeq = "48;2;167;139;250" // cViolet as an ANSI background
+	m := ready(t)
+
+	header := m.headerView()
+	firstLine := strings.Split(header, "\n")[0]
+	clean := ansi.Strip(firstLine)
+	for _, want := range []string{"Columbus", "MAIN", "WORK", "branch:main"} {
+		if !strings.Contains(clean, want) {
+			t.Fatalf("header missing %q:\n%s", want, clean)
+		}
+	}
+	if strings.Index(clean, "branch:main") < strings.Index(clean, "WORK") {
+		t.Fatalf("branch should be on the right side after the tabs:\n%s", clean)
+	}
+	if !strings.Contains(firstLine, activeTabBgSeq) {
+		t.Fatalf("active tab should use a visible background:\n%q", firstLine)
+	}
+}
+
+func TestTabsDoNotRenderAsASeparateRow(t *testing.T) {
+	m := ready(t)
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("view too short:\n%s", m.View().Content)
+	}
+	afterHeader := strings.TrimSpace(lines[2])
+	if strings.Contains(afterHeader, "MAIN") || strings.Contains(afterHeader, "WORK") {
+		t.Fatalf("tabs should be in the header, not a standalone row:\n%s", afterHeader)
+	}
+	if !strings.HasPrefix(afterHeader, "╭") {
+		t.Fatalf("cards should start immediately after the header separator, got:\n%s", afterHeader)
+	}
+}
+
+func TestMainViewRendersMetricCardsAndFullMemoryPanel(t *testing.T) {
+	m := ready(t)
+	out := ansi.Strip(m.View().Content)
+	for _, want := range []string{"MAIN", "WORK", "EMBEDDINGS", "7", "EPICS", "2 active", "STORIES", "2", "TASKS", "2 open", "MEMORY"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("main view missing %q:\n%s", want, out)
+		}
+	}
+	for _, notWant := range []string{"GRAPH EDGES"} {
+		if strings.Contains(out, notWant) {
+			t.Fatalf("main view should not render %q:\n%s", notWant, out)
+		}
+	}
+}
+
+func TestWorkViewRendersKanbanColumns(t *testing.T) {
+	m := ready(t)
+	m = mustUpdate(m, ktype(tea.KeyTab))
+	out := ansi.Strip(m.View().Content)
+	for _, want := range []string{"WORK", "EPICS", "TODO", "IN PROGRESS", "epic_001", "epic_002"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("work kanban missing %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -467,12 +615,12 @@ func TestDimsAndViewSurviveTinyTerminals(t *testing.T) {
 
 func TestFooterHelpIsContextual(t *testing.T) {
 	m := ready(t)
-	if !strings.Contains(m.footerView(), "next pane") {
-		t.Fatal("dashboard footer should advertise pane navigation")
+	if !strings.Contains(m.footerView(), "next view") {
+		t.Fatal("dashboard footer should advertise tab navigation")
 	}
 	sm := mustUpdate(m, runes("/"))
 	f := sm.footerView()
-	if strings.Contains(f, "next pane") {
+	if strings.Contains(f, "next view") {
 		t.Fatalf("search footer should not show dashboard pane keys:\n%s", f)
 	}
 	if !strings.Contains(f, "cancel") {
@@ -503,7 +651,7 @@ func TestViewRendersDashboardAcrossSizes(t *testing.T) {
 		next, _ := m.Update(sz)
 		next, _ = next.(Model).Update(snapshotMsg{snap: sampleSnap()})
 		out := next.(Model).View().Content
-		if !strings.Contains(out, "Columbus") || !strings.Contains(out, "EPICS") {
+		if !strings.Contains(out, "Columbus") || !strings.Contains(out, "MEMORY") || !strings.Contains(out, "STORIES") {
 			t.Fatalf("View at %dx%d missing expected chrome", sz.Width, sz.Height)
 		}
 	}

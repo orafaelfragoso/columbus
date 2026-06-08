@@ -23,8 +23,8 @@ type StoreSource struct {
 	Branch string // resolved by the caller (git); blank is tolerated
 }
 
-// Load reads index metadata, epics/tasks (with a derived task roll-up),
-// memories, and graph hubs into an immutable Snapshot.
+// Load reads index metadata, work rows (with a derived task roll-up), memories,
+// embeddings and graph hubs into an immutable Snapshot.
 func (s *StoreSource) Load() (Snapshot, error) {
 	meta, err := s.DB.Meta().Get()
 	if err != nil {
@@ -32,6 +32,10 @@ func (s *StoreSource) Load() (Snapshot, error) {
 	}
 
 	epics, err := s.DB.ListEpics("", "")
+	if err != nil {
+		return Snapshot{}, err
+	}
+	stories, err := s.DB.ListStories(0, "", "")
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -48,8 +52,15 @@ func (s *StoreSource) Load() (Snapshot, error) {
 			done[t.EpicID]++
 		}
 		taskRows = append(taskRows, TaskRow{
-			ID: t.ID, EpicID: t.EpicID, IDStr: work.FormatTaskID(t.ID),
+			ID: t.ID, EpicID: t.EpicID, StoryID: t.StoryID, IDStr: work.FormatTaskID(t.ID),
 			Title: t.Title, Status: t.Status,
+		})
+	}
+	storyRows := make([]StoryRow, 0, len(stories))
+	for _, st := range stories {
+		storyRows = append(storyRows, StoryRow{
+			ID: st.ID, EpicID: st.EpicID, IDStr: work.FormatStoryID(st.ID),
+			Title: st.Title, Status: st.Status,
 		})
 	}
 	epicRows := make([]EpicRow, 0, len(epics))
@@ -93,20 +104,24 @@ func (s *StoreSource) Load() (Snapshot, error) {
 	if len(hubs) == 0 {
 		// Package-based languages (notably Go) import package paths, not single
 		// files, so the indexer can't resolve them to file ids and dep_edges is
-		// empty. Fall back to raw import specifiers so the graph still surfaces
-		// the project's most-depended-on modules.
+		// empty. Fall back to raw import specifiers so the snapshot still has the
+		// project's most-depended-on modules for graph-oriented callers.
 		imports, err := s.DB.AllImports()
 		if err != nil {
 			return Snapshot{}, err
 		}
 		hubs = topHubs(specifierInDegree(imports))
 	}
+	embeddings, err := s.DB.VectorCount()
+	if err != nil {
+		return Snapshot{}, err
+	}
 
 	return Snapshot{
 		Branch: s.Branch, Head: meta.IndexedHead, Dirty: meta.Dirty, LastIndexedAt: meta.LastIndexedAt,
-		Files: meta.FilesCount, Symbols: meta.SymbolsCount, Edges: len(depEdges) + len(testLinks),
+		Files: meta.FilesCount, Symbols: meta.SymbolsCount, Embeddings: embeddings, Edges: len(depEdges) + len(testLinks),
 		Memories: memTotal, MemCounts: memCounts,
-		Epics: epicRows, Tasks: taskRows, Mems: memRows, Hubs: hubs,
+		Epics: epicRows, Stories: storyRows, Tasks: taskRows, Mems: memRows, Hubs: hubs,
 	}, nil
 }
 
@@ -178,6 +193,20 @@ func (s *StoreSource) Detail(kind string, id int64) (string, error) {
 			return "", err
 		}
 		return epicDetailMarkdown(e, tasks, events), nil
+	case "story":
+		st, ok, err := s.DB.StoryFull(id)
+		if err != nil || !ok {
+			return "", err
+		}
+		events, err := s.DB.WorkEvents("story", id)
+		if err != nil {
+			return "", err
+		}
+		tasks, err := s.DB.ListTasks(0, id, "", "")
+		if err != nil {
+			return "", err
+		}
+		return storyDetailMarkdown(st, tasks, events), nil
 	case "task":
 		t, ok, err := s.DB.TaskFull(id)
 		if err != nil || !ok {
@@ -233,11 +262,34 @@ func epicDetailMarkdown(e store.Epic, tasks []store.TaskBrief, events []store.Wo
 	return b.String()
 }
 
+func storyDetailMarkdown(st store.Story, tasks []store.TaskBrief, events []store.WorkEvent) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n", st.Title)
+	fmt.Fprintf(&b, "**Status:** %s  ·  **ID:** `%s`  ·  **Epic:** `%s`\n\n",
+		statusLabel(st.Status), work.FormatStoryID(st.ID), work.FormatEpicID(st.EpicID))
+	if st.Body != "" {
+		b.WriteString(st.Body + "\n\n")
+	}
+	if len(st.Tags) > 0 {
+		fmt.Fprintf(&b, "**Tags:** %s\n\n", strings.Join(st.Tags, ", "))
+	}
+	writeRefs(&b, st.Refs)
+	if len(tasks) > 0 {
+		b.WriteString("## Tasks\n\n")
+		for _, t := range tasks {
+			fmt.Fprintf(&b, "- `%s` %s — _%s_\n", work.FormatTaskID(t.ID), t.Title, statusLabel(t.Status))
+		}
+		b.WriteString("\n")
+	}
+	writeHistory(&b, events)
+	return b.String()
+}
+
 func taskDetailMarkdown(t store.Task, events []store.WorkEvent) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", t.Title)
-	fmt.Fprintf(&b, "**Status:** %s  ·  **ID:** `%s`  ·  **Epic:** `%s`\n\n",
-		statusLabel(t.Status), work.FormatTaskID(t.ID), work.FormatEpicID(t.EpicID))
+	fmt.Fprintf(&b, "**Status:** %s  ·  **ID:** `%s`  ·  **Story:** `%s`  ·  **Epic:** `%s`\n\n",
+		statusLabel(t.Status), work.FormatTaskID(t.ID), work.FormatStoryID(t.StoryID), work.FormatEpicID(t.EpicID))
 	if t.Body != "" {
 		b.WriteString(t.Body + "\n\n")
 	}

@@ -7,6 +7,8 @@ import "charm.land/bubbles/v2/key"
 type keyMap struct {
 	Up       key.Binding
 	Down     key.Binding
+	Left     key.Binding
+	Right    key.Binding
 	Tab      key.Binding
 	ShiftTab key.Binding
 	Enter    key.Binding
@@ -22,8 +24,10 @@ func defaultKeys() keyMap {
 	return keyMap{
 		Up:       key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
 		Down:     key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
-		Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next pane")),
-		ShiftTab: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev pane")),
+		Left:     key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev type")),
+		Right:    key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next type")),
+		Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next view")),
+		ShiftTab: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev view")),
 		Enter:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "detail")),
 		Search:   key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		Refresh:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
@@ -35,19 +39,19 @@ func defaultKeys() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Tab, k.Up, k.Down, k.Enter, k.Search, k.Refresh, k.Reindex, k.Help, k.Quit}
+	return []key.Binding{k.Tab, k.Up, k.Down, k.Left, k.Right, k.Enter, k.Search, k.Refresh, k.Reindex, k.Help, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.Tab, k.ShiftTab, k.Enter},
+		{k.Up, k.Down, k.Left, k.Right, k.Tab, k.ShiftTab, k.Enter},
 		{k.Search, k.Refresh, k.Reindex, k.Esc},
 		{k.Help, k.Quit},
 	}
 }
 
 // staticHelp is a fixed help.KeyMap used to give each modal (search, results,
-// detail) its own footer hints instead of the dashboard's pane-navigation keys,
+// detail) its own footer hints instead of the dashboard's tab-navigation keys,
 // which don't apply while a modal owns the input.
 type staticHelp struct{ keys []key.Binding }
 
@@ -74,4 +78,19 @@ func detailHelpKeys() []key.Binding {
 		key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "scroll")),
 		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 	}
+}
+
+func quitHelpKeys() []key.Binding {
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("y", "enter"), key.WithHelp("y/enter", "confirm")),
+		key.NewBinding(key.WithKeys("n", "esc"), key.WithHelp("n/esc", "cancel")),
+	}
+}
+
+func mainHelpKeys(k keyMap) []key.Binding {
+	return []key.Binding{k.Tab, k.Up, k.Down, k.Enter, k.Search, k.Refresh, k.Reindex, k.Help, k.Quit}
+}
+
+func workHelpKeys(k keyMap) []key.Binding {
+	return []key.Binding{k.Tab, k.Left, k.Right, k.Up, k.Down, k.Enter, k.Search, k.Refresh, k.Reindex, k.Help, k.Quit}
 }

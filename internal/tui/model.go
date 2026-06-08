@@ -17,14 +17,21 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-type focus int
+type viewTab int
 
 const (
-	focusEpics focus = iota
-	focusTasks
-	focusMemory
-	focusGraph
-	focusCount
+	tabMain viewTab = iota
+	tabWork
+	tabCount
+)
+
+type workKind int
+
+const (
+	workEpics workKind = iota
+	workStories
+	workTasks
+	workKindCount
 )
 
 // snapshotMsg carries the result of an async Source.Load.
@@ -73,8 +80,27 @@ type hitItem struct{ hit SearchHit }
 func (h hitItem) Title() string {
 	return st(grainColor(h.hit.Grain), true).Render(strings.ToUpper(h.hit.Grain)) + "  " + h.hit.Title
 }
-func (h hitItem) Description() string { return h.hit.Where }
+func (h hitItem) Description() string {
+	desc := h.hit.Where
+	if h.hit.Score > 0 {
+		if desc != "" {
+			desc += " · "
+		}
+		desc += "rank " + rankString(h.hit.Score)
+	}
+	return desc
+}
 func (h hitItem) FilterValue() string { return h.hit.Title }
+
+type workItem struct {
+	Kind    string
+	ID      int64
+	IDStr   string
+	Title   string
+	Status  string
+	Meta    string
+	Percent float64
+}
 
 // Model is the root dashboard model. All logic lives in Update and the pure
 // rebuild/dims helpers; View is a thin renderer (so it stays testable).
@@ -83,21 +109,17 @@ type Model struct {
 	snap Snapshot
 	err  error
 
-	w, h    int
-	focus   focus
-	loading bool
+	w, h       int
+	activeTab  viewTab
+	workKind   workKind
+	workCursor int
+	loading    bool
 
 	keys keyMap
 	help help.Model
 	spin spinner.Model
 
-	epics table.Model
-	tasks table.Model
-	mem   table.Model
-	graph table.Model
-
-	allEpics []EpicRow
-	curTasks []TaskRow
+	mem table.Model
 
 	detail      viewport.Model
 	showDetail  bool
@@ -113,6 +135,7 @@ type Model struct {
 	searching   bool
 	results     list.Model
 	showResults bool
+	confirmQuit bool
 
 	refreshEvery time.Duration
 	reindex      func() error
@@ -147,10 +170,7 @@ func New(src Source, opts ...Option) Model {
 		keys:        defaultKeys(),
 		help:        help.New(),
 		spin:        sp,
-		epics:       newTable(),
-		tasks:       newTable(),
 		mem:         newTable(),
-		graph:       newTable(),
 		detail:      viewport.New(),
 		results:     res,
 		searchInput: ti,
@@ -229,7 +249,7 @@ func (m Model) runSearch(query string) tea.Cmd {
 // While one is open the background auto-refresh is suspended so it can't wipe
 // the overlay's content out from under the user.
 func (m Model) modalOpen() bool {
-	return m.searchActive || m.showResults || m.showDetail
+	return m.searchActive || m.showResults || m.showDetail || m.confirmQuit
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -301,6 +321,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if isCtrlC(msg) {
+		return m, tea.Quit
+	}
+
 	// The search input owns all keystrokes while active. Esc cancels; Enter runs
 	// the query synchronously (no async form handshake to lose). Everything else
 	// is forwarded to the text input so it accumulates the query.
@@ -325,6 +349,19 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	if m.confirmQuit {
+		switch {
+		case msg.Code == tea.KeyEscape || msg.Text == "n" || msg.Text == "N":
+			m.confirmQuit = false
+			return m, nil
+		case msg.Code == tea.KeyEnter || msg.Text == "y" || msg.Text == "Y":
+			m.confirmQuit = false
+			return m, tea.Quit
+		default:
+			return m, nil
+		}
+	}
+
 	// Esc is handled next so it always backs out of a mode (results or detail).
 	if msg.Code == tea.KeyEscape {
 		switch {
@@ -342,7 +379,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case key.Matches(msg, m.keys.Quit):
-		return m, tea.Quit
+		m.confirmQuit = true
+		return m, nil
 	case key.Matches(msg, m.keys.Help):
 		m.help.ShowAll = !m.help.ShowAll
 		m.rebuild()
@@ -383,10 +421,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case key.Matches(msg, m.keys.Tab):
-		m.cycleFocus(1)
+		m.cycleTab(1)
 		return m, nil
 	case key.Matches(msg, m.keys.ShiftTab):
-		m.cycleFocus(-1)
+		m.cycleTab(-1)
 		return m, nil
 	case key.Matches(msg, m.keys.Enter):
 		m.openDetail()
@@ -394,39 +432,50 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	switch m.focus {
-	case focusEpics:
-		prev := m.epics.Cursor()
-		m.epics, cmd = m.epics.Update(msg)
-		if m.epics.Cursor() != prev {
-			m.syncTasks()
-		}
-	case focusTasks:
-		m.tasks, cmd = m.tasks.Update(msg)
-	case focusMemory:
+	switch m.activeTab {
+	case tabMain:
 		m.mem, cmd = m.mem.Update(msg)
-	case focusGraph:
-		m.graph, cmd = m.graph.Update(msg)
+	case tabWork:
+		switch {
+		case key.Matches(msg, m.keys.Left):
+			m.cycleWorkKind(-1)
+		case key.Matches(msg, m.keys.Right):
+			m.cycleWorkKind(1)
+		case key.Matches(msg, m.keys.Up):
+			m.moveWorkCursor(-1)
+		case key.Matches(msg, m.keys.Down):
+			m.moveWorkCursor(1)
+		}
 	}
 	return m, cmd
 }
 
-func (m *Model) cycleFocus(dir int) {
-	m.focus = focus((int(m.focus) + dir + int(focusCount)) % int(focusCount))
+func isCtrlC(msg tea.KeyPressMsg) bool {
+	return msg.Code == 'c' && msg.Mod == tea.ModCtrl
+}
+
+func (m *Model) cycleTab(dir int) {
+	m.activeTab = viewTab((int(m.activeTab) + dir + int(tabCount)) % int(tabCount))
 	m.applyFocus()
 }
 
 func (m *Model) applyFocus() {
-	for _, t := range []*table.Model{&m.epics, &m.tasks, &m.mem, &m.graph} {
-		t.Blur()
-		t.SetStyles(tableStyles(false))
+	m.mem.Blur()
+	m.mem.SetStyles(tableStyles(false))
+	if m.activeTab == tabMain {
+		m.mem.Focus()
+		m.mem.SetStyles(tableStyles(true))
 	}
-	active := map[focus]*table.Model{
-		focusEpics: &m.epics, focusTasks: &m.tasks,
-		focusMemory: &m.mem, focusGraph: &m.graph,
-	}[m.focus]
-	active.Focus()
-	active.SetStyles(tableStyles(true))
+	m.workCursor = clampCursor(m.workCursor, len(m.workItems()))
+}
+
+func (m *Model) cycleWorkKind(dir int) {
+	m.workKind = workKind((int(m.workKind) + dir + int(workKindCount)) % int(workKindCount))
+	m.workCursor = clampCursor(0, len(m.workItems()))
+}
+
+func (m *Model) moveWorkCursor(dir int) {
+	m.workCursor = clampCursor(m.workCursor+dir, len(m.workItems()))
 }
 
 func (m *Model) openSearch() tea.Cmd {
@@ -448,15 +497,18 @@ func (m *Model) openHitDetail() {
 	switch h.Grain {
 	case "memory":
 		kind, id = "memory", idNum(h.ID)
-		md = "# " + h.Title + "\n\n`" + h.Where + "`\n"
+		md = hitMarkdown(h)
 	case "epic":
 		kind, id = "epic", idNum(h.ID)
-		md = "# " + h.Title + "\n\n`" + h.Where + "`\n"
+		md = hitMarkdown(h)
+	case "story":
+		kind, id = "story", idNum(h.ID)
+		md = hitMarkdown(h)
 	case "task":
 		kind, id = "task", idNum(h.ID)
-		md = "# " + h.Title + "\n\n`" + h.Where + "`\n"
+		md = hitMarkdown(h)
 	default:
-		md = "# " + h.Title + "\n\n**" + strings.ToUpper(h.Grain) + "** · `" + h.Where + "`\n"
+		md = hitMarkdown(h)
 	}
 	m.detailTitle = h.Title
 	m.setDetail(kind, id, md)
@@ -465,27 +517,34 @@ func (m *Model) openHitDetail() {
 	m.detailFromResults = true
 }
 
+func hitMarkdown(h SearchHit) string {
+	var b strings.Builder
+	b.WriteString("# " + h.Title + "\n\n")
+	b.WriteString("**" + strings.ToUpper(h.Grain) + "**")
+	if h.Where != "" {
+		b.WriteString(" · `" + h.Where + "`")
+	}
+	if h.Score > 0 {
+		b.WriteString(" · rank " + rankString(h.Score))
+	}
+	b.WriteString("\n")
+	if strings.TrimSpace(h.Snippet) != "" {
+		b.WriteString("\n## Snippet\n\n```text\n")
+		b.WriteString(strings.TrimRight(h.Snippet, "\n"))
+		b.WriteString("\n```\n")
+	}
+	return b.String()
+}
+
+func rankString(score float64) string {
+	return strconv.FormatFloat(score, 'f', 2, 64)
+}
+
 func (m *Model) openDetail() {
 	var kind, md string
 	var id int64
-	switch m.focus {
-	case focusEpics:
-		e, ok := m.selectedEpic()
-		if !ok {
-			return
-		}
-		kind, id = "epic", e.ID
-		m.detailTitle = e.IDStr + "  ·  " + e.Title
-		md = epicMarkdown(e, m.snap)
-	case focusTasks:
-		t, ok := m.selectedTask()
-		if !ok {
-			return
-		}
-		kind, id = "task", t.ID
-		m.detailTitle = t.IDStr + "  ·  " + t.Title
-		md = taskMarkdown(t, m.snap)
-	case focusMemory:
+	switch m.activeTab {
+	case tabMain:
 		mr, ok := m.selectedMem()
 		if !ok {
 			return
@@ -493,13 +552,27 @@ func (m *Model) openDetail() {
 		kind, id = "memory", idNum(mr.ID)
 		m.detailTitle = mr.ID + "  ·  " + mr.Title
 		md = memMarkdown(mr)
-	case focusGraph:
-		hb, ok := m.selectedHub()
+	case tabWork:
+		item, ok := m.selectedWorkItem()
 		if !ok {
 			return
 		}
-		m.detailTitle = hb.Path
-		md = graphMarkdown(hb) // kind stays "" → DetailSource skipped, rendered as-is
+		kind, id = item.Kind, item.ID
+		m.detailTitle = item.IDStr + "  ·  " + item.Title
+		switch item.Kind {
+		case "epic":
+			if e, ok := m.epicByID(item.ID); ok {
+				md = epicMarkdown(e, m.snap)
+			}
+		case "story":
+			if st, ok := m.storyByID(item.ID); ok {
+				md = storyMarkdown(st, m.snap)
+			}
+		case "task":
+			if t, ok := m.taskByID(item.ID); ok {
+				md = taskMarkdown(t, m.snap)
+			}
+		}
 	}
 	m.setDetail(kind, id, md)
 	m.showDetail = true
@@ -527,22 +600,6 @@ func (m *Model) setDetail(kind string, id int64, md string) {
 	m.detail.GotoTop()
 }
 
-func (m Model) selectedEpic() (EpicRow, bool) {
-	i := m.epics.Cursor()
-	if i < 0 || i >= len(m.allEpics) {
-		return EpicRow{}, false
-	}
-	return m.allEpics[i], true
-}
-
-func (m Model) selectedTask() (TaskRow, bool) {
-	i := m.tasks.Cursor()
-	if i < 0 || i >= len(m.curTasks) {
-		return TaskRow{}, false
-	}
-	return m.curTasks[i], true
-}
-
 func (m Model) selectedMem() (MemRow, bool) {
 	i := m.mem.Cursor()
 	if i < 0 || i >= len(m.snap.Mems) {
@@ -551,12 +608,105 @@ func (m Model) selectedMem() (MemRow, bool) {
 	return m.snap.Mems[i], true
 }
 
-func (m Model) selectedHub() (HubRow, bool) {
-	i := m.graph.Cursor()
-	if i < 0 || i >= len(m.snap.Hubs) {
-		return HubRow{}, false
+func (m Model) selectedWorkItem() (workItem, bool) {
+	items := m.workItems()
+	if m.workCursor < 0 || m.workCursor >= len(items) {
+		return workItem{}, false
 	}
-	return m.snap.Hubs[i], true
+	return items[m.workCursor], true
+}
+
+func (m Model) workItems() []workItem {
+	switch m.workKind {
+	case workEpics:
+		items := make([]workItem, 0, len(m.snap.Epics))
+		for _, e := range m.snap.Epics {
+			items = append(items, workItem{
+				Kind: "epic", ID: e.ID, IDStr: e.IDStr, Title: e.Title, Status: e.Status,
+				Meta:    strconv.Itoa(e.Done) + "/" + strconv.Itoa(e.Total) + " tasks",
+				Percent: e.Progress(),
+			})
+		}
+		return items
+	case workStories:
+		items := make([]workItem, 0, len(m.snap.Stories))
+		for _, st := range m.snap.Stories {
+			items = append(items, workItem{
+				Kind: "story", ID: st.ID, IDStr: st.IDStr, Title: st.Title, Status: st.Status,
+				Meta: m.epicLabel(st.EpicID),
+			})
+		}
+		return items
+	case workTasks:
+		items := make([]workItem, 0, len(m.snap.Tasks))
+		for _, t := range m.snap.Tasks {
+			items = append(items, workItem{
+				Kind: "task", ID: t.ID, IDStr: t.IDStr, Title: t.Title, Status: t.Status,
+				Meta: m.storyLabel(t.StoryID),
+			})
+		}
+		return items
+	default:
+		return nil
+	}
+}
+
+func (m Model) epicByID(id int64) (EpicRow, bool) {
+	for _, e := range m.snap.Epics {
+		if e.ID == id {
+			return e, true
+		}
+	}
+	return EpicRow{}, false
+}
+
+func (m Model) storyByID(id int64) (StoryRow, bool) {
+	for _, st := range m.snap.Stories {
+		if st.ID == id {
+			return st, true
+		}
+	}
+	return StoryRow{}, false
+}
+
+func (m Model) taskByID(id int64) (TaskRow, bool) {
+	for _, t := range m.snap.Tasks {
+		if t.ID == id {
+			return t, true
+		}
+	}
+	return TaskRow{}, false
+}
+
+func (m Model) epicLabel(id int64) string {
+	for _, e := range m.snap.Epics {
+		if e.ID == id {
+			return e.IDStr
+		}
+	}
+	return "epic_" + padID(id)
+}
+
+func (m Model) storyLabel(id int64) string {
+	for _, st := range m.snap.Stories {
+		if st.ID == id {
+			return st.IDStr
+		}
+	}
+	return "story_" + padID(id)
+}
+
+func padID(id int64) string {
+	if id < 0 {
+		id = 0
+	}
+	if id < 10 {
+		return "00" + strconv.FormatInt(id, 10)
+	}
+	if id < 100 {
+		return "0" + strconv.FormatInt(id, 10)
+	}
+	return strconv.FormatInt(id, 10)
 }
 
 // idNum extracts the trailing numeric id from a prefixed id like "mem_012".
@@ -577,49 +727,17 @@ func (m *Model) rebuild() {
 	}
 	d := m.dims()
 
-	m.allEpics = m.snap.Epics
-	m.epics.SetColumns(epicColumns(d.epicsW - 4))
-	m.epics.SetRows(epicTableRows(m.allEpics, d.epicsW-4))
-	m.epics.SetWidth(d.epicsW - 4)
-	m.epics.SetHeight(max(1, d.midH-5))
-	m.epics.SetCursor(clampCursor(m.epics.Cursor(), len(m.allEpics)))
-
-	m.tasks.SetWidth(d.tasksW - 4)
-	m.tasks.SetHeight(max(1, d.midH-5))
-
 	m.mem.SetColumns(memColumns(d.memW - 4))
 	m.mem.SetRows(memTableRows(m.snap.Mems, d.memW-4))
 	m.mem.SetWidth(d.memW - 4)
-	m.mem.SetHeight(max(1, d.botH-5))
+	m.mem.SetHeight(max(1, d.bodyH-5))
 	m.mem.SetCursor(clampCursor(m.mem.Cursor(), len(m.snap.Mems)))
-
-	m.graph.SetColumns(graphColumns(d.graphW - 4))
-	m.graph.SetRows(graphTableRows(m.snap.Hubs, d.graphW-4))
-	m.graph.SetWidth(d.graphW - 4)
-	m.graph.SetHeight(max(1, d.botH-5))
-	m.graph.SetCursor(clampCursor(m.graph.Cursor(), len(m.snap.Hubs)))
 
 	m.detail.SetWidth(d.detailW)
 	m.detail.SetHeight(d.detailH)
 	m.results.SetSize(d.detailW, d.detailH)
 
 	m.applyFocus()
-	m.syncTasks()
-}
-
-func (m *Model) syncTasks() {
-	d := m.dims()
-	var epicID int64 = -1
-	if e, ok := m.selectedEpic(); ok {
-		epicID = e.ID
-	}
-	m.curTasks = nil
-	if epicID >= 0 {
-		m.curTasks = m.snap.TasksForEpic(epicID)
-	}
-	m.tasks.SetColumns(taskColumns(d.tasksW - 4))
-	m.tasks.SetRows(taskTableRows(m.curTasks, d.tasksW-4))
-	m.tasks.SetCursor(clampCursor(m.tasks.Cursor(), len(m.curTasks)))
 }
 
 // clampCursor keeps a table cursor in [0, n-1]; bubbles' table can leave the

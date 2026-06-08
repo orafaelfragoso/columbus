@@ -150,6 +150,23 @@ func TestVecDelete(t *testing.T) {
 	}
 }
 
+func TestVectorCountReturnsStoredEmbeddingCount(t *testing.T) {
+	db := openTemp(t)
+	const model = "m"
+	if got, err := db.VectorCount(); err != nil || got != 0 {
+		t.Fatalf("empty VectorCount = %d, %v; want 0, nil", got, err)
+	}
+	if err := db.UpsertVector("file", 1, model, "s1", vec256(1, 0, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertVector("memory", 2, model, "s2", vec256(0, 1, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := db.VectorCount(); err != nil || got != 2 {
+		t.Fatalf("VectorCount = %d, %v; want 2, nil", got, err)
+	}
+}
+
 func TestEmbedInfoRoundTrip(t *testing.T) {
 	db := openTemp(t)
 	m, err := db.Meta().Get()

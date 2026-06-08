@@ -101,7 +101,7 @@ weights.
 columbus install                 # onboard: write .columbus.json, create db, first index + embed
 columbus search "parse config"   # ranked, LLM-ready context with exact line ranges
 columbus reindex                 # re-chunk + re-embed only what changed
-columbus view                    # full-screen dashboard (index, memory, epics, tasks, graph)
+columbus view                    # full-screen dashboard (main memory view + work Kanban)
 columbus doctor                  # verify git, vec0, model runtime + index health
 ```
 
@@ -245,15 +245,17 @@ columbus import knowledge.json         # vectors are not exported — reindex re
 ### Dashboard
 
 `columbus view` opens a full-screen, read-mostly terminal dashboard over the
-indexed project: index freshness and counts, durable memory, epics & tasks
-(with task roll-up progress), and the dependency-graph hubs. It auto-refreshes,
-so external `columbus reindex`/agent edits appear on their own.
+indexed project. The Main tab shows index freshness, file/symbol/embedding
+counts, memory counts, epic/story/task counts, and a full-width memory table. The
+Work tab is a Kanban board for epics, stories, and tasks, grouped by status. It
+auto-refreshes, so external `columbus reindex`/agent edits appear on their own.
 
-Keys: `tab` switch pane · `↑/↓` (or `j/k`) navigate · `enter` detail (full body,
-refs, history) · `/` search across code, memory, epics & tasks · `esc` back ·
-`r` refresh · `R` reindex (in-process) · `?` help · `q` quit. It is a projection
-of the same data the JSON/LLM commands expose; only `R` writes (it runs the
-indexer) — epics/tasks/memory are read-only.
+Keys: `tab` switch Main/Work · `←/→` cycle epics/stories/tasks in Work · `↑/↓`
+(or `j/k`) navigate · `enter` detail (full body, refs, history) · `/` semantic
+search across code, memory and work (ranked results, snippets in detail) ·
+`esc` back · `r` refresh · `R` reindex (in-process) · `?` help · `q` quit
+confirmation. It is a projection of the same data the JSON/LLM commands expose;
+only `R` writes (it runs the indexer) — work/memory are read-only.
 
 ## Output modes
 

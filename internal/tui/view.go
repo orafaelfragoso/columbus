@@ -9,31 +9,25 @@ import (
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // layout holds the computed rectangle sizes for the current window.
 type layout struct {
-	epicsW, tasksW, midH int
-	memW, graphW, botH   int
-	detailW, detailH     int
+	memW, bodyH      int
+	detailW, detailH int
 }
 
 func (m Model) dims() layout {
 	w, h := m.w, m.h
-	// Sections stack flush (no inter-section blank rows), so the mid+bot panels
-	// get everything left after the header(2), the cards(6) and the footer.
+	// Sections stack flush (no inter-section blank rows), so the body panel gets
+	// everything left after the header, cards and footer.
 	rem := h - 2 - cardHeight - lipgloss.Height(m.footerView())
 	if rem < 8 {
 		rem = 8
 	}
-	midH := rem * 56 / 100
-	midAvail := w - hGap
-	botAvail := w - hGap
-	epicsW := midAvail * 42 / 100
-	memW := botAvail * 52 / 100
 	return layout{
-		epicsW: epicsW, tasksW: midAvail - epicsW, midH: midH,
-		memW: memW, graphW: botAvail - memW, botH: rem - midH,
+		memW: max(12, w), bodyH: rem,
 		// Clamp the overlay/detail box so a very narrow or short terminal can't
 		// drive a zero/negative box width (which would break the compositor math).
 		detailW: max(24, min(w-12, 96)), detailH: max(6, h*7/10),
@@ -47,12 +41,13 @@ func (m Model) View() tea.View {
 	dash := lipgloss.JoinVertical(lipgloss.Left,
 		m.headerView(),
 		m.cardsView(),
-		m.midView(),
-		m.botView(),
+		m.bodyView(),
 		m.footerView(),
 	)
 
 	switch {
+	case m.confirmQuit:
+		return altView(m.overlay(dash, m.quitBox()))
 	case m.searchActive:
 		return altView(m.overlay(dash, m.searchBox()))
 	case m.showResults:
@@ -99,7 +94,7 @@ func box(title, body string, innerW int) string {
 
 func (m Model) searchBox() string {
 	d := m.dims()
-	body := st(cMuted, false).Render("Search code, memory, epics & tasks") + "\n\n" +
+	body := st(cMuted, false).Render("Semantic search across code, memory and work") + "\n\n" +
 		m.searchInput.View() + "\n\n" +
 		st(cMuted, false).Render("enter search · esc cancel")
 	return box("Search", body, d.detailW)
@@ -116,23 +111,26 @@ func (m Model) detailBox() string {
 	return box(m.detailTitle, body, m.dims().detailW)
 }
 
+func (m Model) quitBox() string {
+	body := st(cText, false).Render("Quit Columbus?") + "\n\n" +
+		st(cMuted, false).Render("y confirm · n cancel · esc cancel")
+	return box("Confirm Quit", body, min(40, m.dims().detailW))
+}
+
 func (m Model) headerView() string {
 	s := m.snap
-	left := st(cViolet, true).Render("✦ Columbus")
-	if s.Branch != "" {
-		left += st(cMuted, false).Render("   branch:") + st(cText, false).Render(s.Branch)
-	}
+	left := st(cViolet, true).Render("✦ Columbus") + "  " + m.headerTabsView()
 
-	var right string
+	var status string
 	switch {
 	case m.reindexing:
-		right = m.spin.View() + st(cViolet, false).Render(" reindexing…")
+		status = m.spin.View() + st(cViolet, false).Render(" reindexing…")
 	case m.searching:
-		right = m.spin.View() + st(cViolet, false).Render(" searching…")
+		status = m.spin.View() + st(cViolet, false).Render(" searching…")
 	case m.loading:
-		right = m.spin.View() + st(cMuted, false).Render(" loading…")
+		status = m.spin.View() + st(cMuted, false).Render(" loading…")
 	case m.err != nil:
-		right = st(cRed, false).Render("● error: " + m.err.Error())
+		status = st(cRed, false).Render("● error: " + m.err.Error())
 	default:
 		dirty, dc := "clean", cGreen
 		if s.Dirty {
@@ -142,63 +140,194 @@ func (m Model) headerView() string {
 		if head == "" {
 			head = "(unindexed)"
 		}
-		right = st(dc, false).Render("● ") +
+		status = st(dc, false).Render("● ") +
 			st(cMuted, false).Render("indexed ") + st(cText, false).Render(head) +
 			st(cMuted, false).Render(" · ") + st(dc, false).Render(dirty) +
 			st(cMuted, false).Render(" · ") + st(cText, false).Render(comma(s.Files)+" files") +
 			st(cMuted, false).Render(" · ") + st(cText, false).Render(comma(s.Symbols)+" symbols")
 	}
+	right := status
+	if s.Branch != "" {
+		branch := st(cMuted, false).Render("branch:") + st(cText, false).Render(s.Branch)
+		if right != "" {
+			right = branch + st(cMuted, false).Render(" · ") + right
+		} else {
+			right = branch
+		}
+	}
 	return spread(m.w, left, right) + "\n" + st(cBorder, false).Render(strings.Repeat("─", m.w))
+}
+
+func (m Model) headerTabsView() string {
+	tabs := []struct {
+		tab   viewTab
+		label string
+	}{
+		{tabMain, "MAIN"},
+		{tabWork, "WORK"},
+	}
+	parts := make([]string, 0, len(tabs))
+	for _, t := range tabs {
+		style := lipgloss.NewStyle().Padding(0, 1).Foreground(cMuted)
+		if m.activeTab == t.tab {
+			style = style.Foreground(cTrack).Background(cViolet).Bold(true)
+		}
+		parts = append(parts, style.Render(t.label))
+	}
+	return strings.Join(parts, " ")
 }
 
 func (m Model) cardsView() string {
 	s := m.snap
-	wds := splitEven(m.w-5*hGap, 6)
+	const n = 7
+	wds := splitEven(max(n, m.w-(n-1)*hGap), n)
 	cards := []string{
 		card(wds[0], cBlue, "FILES INDEXED", comma(s.Files), "tree-sitter parsed"),
 		card(wds[1], cGreen, "SYMBOLS", comma(s.Symbols), "defs + refs"),
-		card(wds[2], cViolet, "MEMORIES", comma(s.Memories), memSub(s.MemCounts)),
-		card(wds[3], cCyan, "EPICS", comma(len(s.Epics)), fmt.Sprintf("%d active", s.EpicsActive())),
-		card(wds[4], cYellow, "TASKS", comma(len(s.Tasks)), fmt.Sprintf("%d open", s.TasksOpen())),
-		card(wds[5], cPink, "GRAPH EDGES", comma(s.Edges), "imports + tests"),
+		card(wds[2], cPink, "EMBEDDINGS", comma(s.Embeddings), "semantic vectors"),
+		card(wds[3], cViolet, "MEMORIES", comma(s.Memories), memSub(s.MemCounts)),
+		card(wds[4], cCyan, "EPICS", comma(len(s.Epics)), fmt.Sprintf("%d active", s.EpicsActive())),
+		card(wds[5], cYellow, "STORIES", comma(len(s.Stories)), fmt.Sprintf("%d open", s.StoriesOpen())),
+		card(wds[6], cPink, "TASKS", comma(len(s.Tasks)), fmt.Sprintf("%d open", s.TasksOpen())),
 	}
 	return joinH(cards...)
 }
 
-func (m Model) midView() string {
-	d := m.dims()
-	epicsBox := panel(d.epicsW, d.midH, "EPICS",
-		fmt.Sprintf("%d total", len(m.snap.Epics)), m.epics.View(), m.focus == focusEpics)
-
-	title := "TASKS"
-	if e, ok := m.selectedEpic(); ok {
-		title = "TASKS — " + e.Title
+func (m Model) bodyView() string {
+	switch m.activeTab {
+	case tabWork:
+		return m.workView()
+	default:
+		return m.mainView()
 	}
-	tasksBox := panel(d.tasksW, d.midH, title,
-		fmt.Sprintf("%d", len(m.curTasks)), m.tasks.View(), m.focus == focusTasks)
-	return joinH(epicsBox, tasksBox)
 }
 
-func (m Model) botView() string {
+func (m Model) mainView() string {
 	d := m.dims()
-	memBox := panel(d.memW, d.botH, "MEMORY",
-		fmt.Sprintf("%d entries", m.snap.Memories), m.mem.View(), m.focus == focusMemory)
-	graphBox := panel(d.graphW, d.botH, "GRAPH — most imported",
-		"by in-degree", m.graph.View(), m.focus == focusGraph)
-	return joinH(memBox, graphBox)
+	return panel(d.memW, d.bodyH, "MEMORY",
+		fmt.Sprintf("%d entries", m.snap.Memories), m.mem.View(), m.activeTab == tabMain)
+}
+
+func (m Model) workView() string {
+	d := m.dims()
+	items := m.workItems()
+	body := m.kanbanView(d.memW-4, max(1, d.bodyH-5), items)
+	return panel(d.memW, d.bodyH, "WORK — "+strings.ToUpper(workKindLabel(m.workKind)),
+		fmt.Sprintf("%d items · ←/→ cycle", len(items)), body, m.activeTab == tabWork)
 }
 
 func (m Model) footerView() string {
 	var km help.KeyMap = m.keys
 	switch {
+	case m.confirmQuit:
+		km = staticHelp{quitHelpKeys()}
 	case m.searchActive:
 		km = staticHelp{searchHelpKeys()}
 	case m.showResults:
 		km = staticHelp{resultsHelpKeys()}
 	case m.showDetail:
 		km = staticHelp{detailHelpKeys()}
+	case m.activeTab == tabMain:
+		km = staticHelp{mainHelpKeys(m.keys)}
+	case m.activeTab == tabWork:
+		km = staticHelp{workHelpKeys(m.keys)}
 	}
 	return lipgloss.NewStyle().Padding(0, 1).Render(m.help.View(km))
+}
+
+func (m Model) kanbanView(innerW, rows int, items []workItem) string {
+	statuses := []string{"todo", "in_progress", "blocked", "done", "cancelled"}
+	if innerW < 1 {
+		innerW = 1
+	}
+	avail := innerW - hGap*(len(statuses)-1)
+	if avail < len(statuses) {
+		avail = len(statuses)
+	}
+	widths := splitEven(avail, len(statuses))
+	selected, _ := m.selectedWorkItem()
+	cols := make([]string, 0, len(statuses))
+	for i, status := range statuses {
+		cols = append(cols, kanbanColumn(widths[i], rows, status, items, selected))
+	}
+	return joinH(cols...)
+}
+
+func kanbanColumn(w, rows int, status string, items []workItem, selected workItem) string {
+	if w < 4 {
+		w = 4
+	}
+	lines := []string{
+		cell(statusLabel(status), w, statusColor(status)),
+		st(cBorder, false).Render(strings.Repeat("─", w)),
+	}
+	matches := 0
+	for _, item := range items {
+		if item.Status != status {
+			continue
+		}
+		matches++
+		if len(lines) > 2 {
+			lines = append(lines, strings.Repeat(" ", w))
+		}
+		lines = append(lines, kanbanCardLines(w, item, sameWorkItem(item, selected))...)
+	}
+	if matches == 0 {
+		lines = append(lines, cell("no items", w, cMuted))
+	}
+	if len(lines) > rows {
+		lines = lines[:rows]
+	}
+	for len(lines) < rows {
+		lines = append(lines, strings.Repeat(" ", w))
+	}
+	for i, line := range lines {
+		if lipgloss.Width(line) > w {
+			lines[i] = ansi.Truncate(line, w, "")
+		} else {
+			lines[i] = padR(line, w)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func kanbanCardLines(w int, item workItem, selected bool) []string {
+	title := truncate(item.IDStr+" "+item.Title, w)
+	meta := truncate(item.Meta, w)
+	if item.Kind == "epic" {
+		barW := max(4, min(10, w-lipgloss.Width(item.Meta)-1))
+		meta = item.Meta + " " + bar(item.Percent, barW, cBar)
+		if lipgloss.Width(meta) > w {
+			meta = ansi.Truncate(meta, w, "")
+		}
+	}
+	lines := []string{padR(title, w)}
+	if meta != "" {
+		lines = append(lines, padR(meta, w))
+	}
+	if !selected {
+		return lines
+	}
+	style := lipgloss.NewStyle().Foreground(cBright).Background(selBg)
+	for i, line := range lines {
+		lines[i] = style.Render(padR(line, w))
+	}
+	return lines
+}
+
+func sameWorkItem(a, b workItem) bool {
+	return a.Kind == b.Kind && a.ID == b.ID && a.ID != 0
+}
+
+func workKindLabel(k workKind) string {
+	switch k {
+	case workStories:
+		return "stories"
+	case workTasks:
+		return "tasks"
+	default:
+		return "epics"
+	}
 }
 
 func memSub(counts map[string]int) string {
@@ -370,6 +499,27 @@ func epicMarkdown(e EpicRow, s Snapshot) string {
 	return b.String()
 }
 
+func storyMarkdown(st StoryRow, s Snapshot) string {
+	epic := "—"
+	for _, e := range s.Epics {
+		if e.ID == st.EpicID {
+			epic = e.IDStr + " · " + e.Title
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n", st.Title)
+	fmt.Fprintf(&b, "- **ID:** `%s`\n- **Status:** %s\n- **Epic:** %s\n",
+		st.IDStr, statusLabel(st.Status), epic)
+	tasks := s.TasksForStory(st.ID)
+	if len(tasks) > 0 {
+		b.WriteString("\n## Tasks\n\n")
+		for _, t := range tasks {
+			fmt.Fprintf(&b, "- `%s` %s — _%s_\n", t.IDStr, t.Title, statusLabel(t.Status))
+		}
+	}
+	return b.String()
+}
+
 func taskMarkdown(t TaskRow, s Snapshot) string {
 	epic := "—"
 	for _, e := range s.Epics {
@@ -377,10 +527,16 @@ func taskMarkdown(t TaskRow, s Snapshot) string {
 			epic = e.IDStr + " · " + e.Title
 		}
 	}
+	story := "—"
+	for _, st := range s.Stories {
+		if st.ID == t.StoryID {
+			story = st.IDStr + " · " + st.Title
+		}
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", t.Title)
-	fmt.Fprintf(&b, "- **ID:** `%s`\n- **Status:** %s\n- **Epic:** %s\n",
-		t.IDStr, statusLabel(t.Status), epic)
+	fmt.Fprintf(&b, "- **ID:** `%s`\n- **Status:** %s\n- **Story:** %s\n- **Epic:** %s\n",
+		t.IDStr, statusLabel(t.Status), story, epic)
 	return b.String()
 }
 

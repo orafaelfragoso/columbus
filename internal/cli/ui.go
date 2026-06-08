@@ -7,6 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/orafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/embed"
 	"github.com/orafaelfragoso/columbus/internal/extract"
 	"github.com/orafaelfragoso/columbus/internal/gitrepo"
 	"github.com/orafaelfragoso/columbus/internal/grep"
@@ -17,15 +19,16 @@ import (
 )
 
 // newViewCmd builds `columbus view`: a full-screen, read-mostly dashboard over
-// the project's index, memory, and structured work (epics, stories & tasks).
+// the project's index, memory, embeddings, and structured work.
 func newViewCmd(env *Env) *cobra.Command {
 	return &cobra.Command{
 		Use:   "view",
-		Short: "open the interactive dashboard (index, memory, epics, tasks, graph)",
+		Short: "open the interactive dashboard (index, memory, embeddings, work)",
 		Long: "Open a full-screen terminal dashboard over the indexed project: index " +
-			"freshness, durable memory, epics & tasks, and the dependency-graph hubs. " +
-			"Read-mostly — tab/arrows to navigate, enter for detail, / to search " +
-			"code/memory/work, r to refresh, R to reindex, q to quit.",
+			"freshness, embeddings, durable memory, and a Kanban work view for epics, " +
+			"stories and tasks. Read-mostly — tab to switch views, arrows to navigate, " +
+			"enter for detail, / to semantic-search code/memory/work, r to refresh, " +
+			"R to reindex, q to quit.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			proj, err := env.openProject()
@@ -49,10 +52,22 @@ func newViewCmd(env *Env) *cobra.Command {
 				return tui.PrintFrame(env.Stdout, src, w, h)
 			}
 
+			var embedder search.Embedder
+			if e, eerr := embed.New(env.ctx()); eerr != nil {
+				if ce := contract.AsError(eerr); ce.Code == contract.CodeRuntimeMissing {
+					proj.Logger.Info("semantic search disabled", "reason", ce.Message)
+				} else {
+					return eerr
+				}
+			} else {
+				defer e.Close()
+				embedder = e
+			}
+
 			return tui.Run(src,
 				tui.WithRefreshInterval(2*time.Second),
 				tui.WithReindex(reindexFunc(env, proj, reg)),
-				tui.WithSearch(searchFunc(env, proj, reg)),
+				tui.WithSearch(searchFunc(env, proj, reg, embedder)),
 			)
 		},
 	}
@@ -75,18 +90,20 @@ func reindexFunc(env *Env, proj *projectContext, reg *extract.Registry) func() e
 	}
 }
 
-// searchFunc runs a global ranked search across code, memory, epics and tasks
-// (the same engine `columbus search --kind all` uses) and maps it to SearchHits.
-func searchFunc(env *Env, proj *projectContext, reg *extract.Registry) func(string) ([]tui.SearchHit, error) {
+// searchFunc runs a global ranked semantic search across code, memory, epics,
+// stories and tasks (the same engine `columbus search --kind all` uses) and maps
+// it to SearchHits.
+func searchFunc(env *Env, proj *projectContext, reg *extract.Registry, embedder search.Embedder) func(string) ([]tui.SearchHit, error) {
 	return func(q string) ([]tui.SearchHit, error) {
 		engine := &search.Engine{
 			DB:       proj.DB,
 			WorkDir:  env.WorkDir,
 			Registry: reg,
 			Searcher: grep.NewContext(env.ctx()),
+			Embedder: embedder,
 			Logger:   proj.Logger,
 		}
-		res, err := engine.Search(search.Query{Text: q, Kind: search.KindAll, Limit: 50})
+		res, err := engine.Search(search.Query{Text: q, Kind: search.KindAll, Limit: 50, ContextLines: 3, Snippets: true})
 		if err != nil {
 			return nil, err
 		}
@@ -94,6 +111,7 @@ func searchFunc(env *Env, proj *projectContext, reg *extract.Registry) func(stri
 		for _, h := range res.Hits {
 			hits = append(hits, tui.SearchHit{
 				Grain: h.Grain, ID: h.ID, Title: hitTitle(h), Where: hitWhere(h),
+				Score: h.Score, Snippet: h.Snippet,
 			})
 		}
 		return hits, nil

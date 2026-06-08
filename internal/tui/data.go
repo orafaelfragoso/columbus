@@ -1,8 +1,9 @@
 // Package tui implements `columbus view`: a local, full-screen dashboard over the
-// project's indexed state, memory, and structured work (epics & tasks). It is a
-// read-mostly projection — the same data the JSON/LLM commands expose, rendered
-// for humans. All state is derived from a Snapshot loaded through a Source port,
-// which keeps the rendering layer testable without a terminal.
+// project's indexed state, embeddings, memory, and structured work (epics,
+// stories and tasks). It is a read-mostly projection — the same data the
+// JSON/LLM commands expose, rendered for humans. All state is derived from a
+// Snapshot loaded through a Source port, which keeps the rendering layer
+// testable without a terminal.
 package tui
 
 import (
@@ -22,16 +23,18 @@ type Snapshot struct {
 	Dirty         bool
 	LastIndexedAt string
 
-	Files     int
-	Symbols   int
-	Edges     int
-	Memories  int
-	MemCounts map[string]int
+	Files      int
+	Symbols    int
+	Embeddings int
+	Edges      int
+	Memories   int
+	MemCounts  map[string]int
 
-	Epics []EpicRow
-	Tasks []TaskRow // every task, across all epics
-	Mems  []MemRow
-	Hubs  []HubRow
+	Epics   []EpicRow
+	Stories []StoryRow
+	Tasks   []TaskRow // every task, across all stories/epics
+	Mems    []MemRow
+	Hubs    []HubRow
 }
 
 // EpicRow is an epic summary plus its task roll-up (progress is derived, not
@@ -45,13 +48,23 @@ type EpicRow struct {
 	Total  int
 }
 
-// TaskRow is a task summary; its parent epic is kept for the synced task panel.
-type TaskRow struct {
+// StoryRow is a story summary with its parent epic.
+type StoryRow struct {
 	ID     int64
 	EpicID int64
 	IDStr  string
 	Title  string
 	Status string
+}
+
+// TaskRow is a task summary with its parent story and denormalized epic.
+type TaskRow struct {
+	ID      int64
+	EpicID  int64
+	StoryID int64
+	IDStr   string
+	Title   string
+	Status  string
 }
 
 // MemRow is a durable-memory summary.
@@ -61,7 +74,7 @@ type MemRow struct {
 	Title string
 }
 
-// HubRow is a file and its import in-degree (the `show graph` headline).
+// HubRow is a file and its import in-degree.
 type HubRow struct {
 	Path string
 	In   int
@@ -75,21 +88,24 @@ type Source interface {
 // SearchHit is one result of a global search across code, memory and work. It
 // is produced by the search function wired via WithSearch.
 type SearchHit struct {
-	Grain string // "symbol" | "file" | "memory" | "epic" | "task"
-	ID    string
-	Title string
-	Where string // path:line for code, id for memory/epic/task
+	Grain   string // "symbol" | "file" | "memory" | "epic" | "story" | "task"
+	ID      string
+	Title   string
+	Where   string // path:line for code, id for memory/epic/story/task
+	Score   float64
+	Snippet string
 }
 
-// DetailSource optionally renders a rich markdown detail for one epic or task
-// (kind is "epic" or "task"). StoreSource implements it by fetching full bodies,
-// tags, refs and history; the model falls back to a Snapshot summary otherwise.
+// DetailSource optionally renders a rich markdown detail for one work or memory
+// item (kind is "epic", "story", "task" or "memory"). StoreSource implements it
+// by fetching full bodies, tags, refs and history; the model falls back to a
+// Snapshot summary otherwise.
 type DetailSource interface {
 	Detail(kind string, id int64) (string, error)
 }
 
 // Progress is the fraction of an epic's tasks that are done (0 when it has no
-// tasks). It is the bar the dashboard draws.
+// tasks). It is the bar the work view draws.
 func (e EpicRow) Progress() float64 {
 	if e.Total <= 0 {
 		return 0
@@ -113,6 +129,17 @@ func (s Snapshot) EpicsActive() int {
 	return n
 }
 
+// StoriesOpen counts stories that are neither done nor cancelled.
+func (s Snapshot) StoriesOpen() int {
+	n := 0
+	for _, st := range s.Stories {
+		if open(st.Status) {
+			n++
+		}
+	}
+	return n
+}
+
 // TasksOpen counts tasks that are neither done nor cancelled.
 func (s Snapshot) TasksOpen() int {
 	n := 0
@@ -129,6 +156,18 @@ func (s Snapshot) TasksForEpic(epicID int64) []TaskRow {
 	var out []TaskRow
 	for _, t := range s.Tasks {
 		if t.EpicID == epicID {
+			out = append(out, t)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// TasksForStory returns the tasks belonging to the given story, in id order.
+func (s Snapshot) TasksForStory(storyID int64) []TaskRow {
+	var out []TaskRow
+	for _, t := range s.Tasks {
+		if t.StoryID == storyID {
 			out = append(out, t)
 		}
 	}

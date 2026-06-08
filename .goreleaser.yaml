@@ -35,6 +35,12 @@ builds:
     goarch:
       - amd64
       - arm64
+    # onnxruntime dropped Intel-mac (osx-x86_64) binaries at 1.26.0 — the version
+    # the Go binding requires (API 26) — so there is no runtime to ship for
+    # darwin/amd64. macOS is Apple-silicon only.
+    ignore:
+      - goos: darwin
+        goarch: amd64
     # This pipeline runs on a macOS runner (see release.yml):
     #   - darwin builds natively with Apple clang+SDK (handles both arches via
     #     -arch). zig CANNOT cross-compile darwin reliably: macOS needs Apple

@@ -26,7 +26,9 @@ mkdir -p "$dest"
 # Map go os/arch -> upstream asset slugs and library file names.
 case "$os/$arch" in
   darwin/arm64)  ort_slug="osx-arm64";     tok_slug="darwin-aarch64"; ort_lib="libonnxruntime.${ORT_VERSION}.dylib"; ort_link="libonnxruntime.dylib" ;;
-  darwin/amd64)  ort_slug="osx-x86_64";    tok_slug="darwin-x86_64";  ort_lib="libonnxruntime.${ORT_VERSION}.dylib"; ort_link="libonnxruntime.dylib" ;;
+  # darwin/amd64 (Intel mac) is unsupported: onnxruntime stopped publishing an
+  # osx-x86_64 build at 1.26.0 (the version the Go binding needs), so there is no
+  # runtime to ship. Falls through to the unsupported-target error below.
   linux/amd64)   ort_slug="linux-x64";     tok_slug="linux-x86_64";   ort_lib="libonnxruntime.so.${ORT_VERSION}";    ort_link="libonnxruntime.so" ;;
   linux/arm64)   ort_slug="linux-aarch64"; tok_slug="linux-aarch64";  ort_lib="libonnxruntime.so.${ORT_VERSION}";    ort_link="libonnxruntime.so" ;;
   windows/amd64) ort_slug="win-x64";       tok_slug="windows-x86_64"; ort_lib="onnxruntime.dll";                     ort_link="onnxruntime.dll" ;;

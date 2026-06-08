@@ -381,66 +381,6 @@ func memSub(counts map[string]int) string {
 
 // ---- table columns/rows ----
 
-func epicColumns(inner int) []table.Column {
-	nameW := inner - 4 - 14 - 6 - 11
-	if nameW < 6 {
-		nameW = 6
-	}
-	return []table.Column{
-		{Title: "#", Width: 4},
-		{Title: "Epic", Width: nameW},
-		{Title: "Status", Width: 14},
-		{Title: "Tasks", Width: 6},
-		{Title: "Progress", Width: 11},
-	}
-}
-
-func epicTableRows(epics []EpicRow, inner int) []table.Row {
-	nameW := inner - 4 - 14 - 6 - 11
-	if nameW < 6 {
-		nameW = 6
-	}
-	rows := make([]table.Row, 0, len(epics))
-	for _, e := range epics {
-		rows = append(rows, table.Row{
-			strings.TrimPrefix(e.IDStr, "epic_"),
-			truncate(e.Title, nameW),
-			statusBadge(e.Status),
-			fmt.Sprintf("%d/%d", e.Done, e.Total),
-			bar(e.Progress(), 9, cBar),
-		})
-	}
-	return rows
-}
-
-func taskColumns(inner int) []table.Column {
-	nameW := inner - 5 - 14
-	if nameW < 6 {
-		nameW = 6
-	}
-	return []table.Column{
-		{Title: "#", Width: 5},
-		{Title: "Task", Width: nameW},
-		{Title: "Status", Width: 14},
-	}
-}
-
-func taskTableRows(tasks []TaskRow, inner int) []table.Row {
-	nameW := inner - 5 - 14
-	if nameW < 6 {
-		nameW = 6
-	}
-	rows := make([]table.Row, 0, len(tasks))
-	for _, t := range tasks {
-		rows = append(rows, table.Row{
-			strings.TrimPrefix(t.IDStr, "task_"),
-			truncate(t.Title, nameW),
-			statusBadge(t.Status),
-		})
-	}
-	return rows
-}
-
 func colW(n int) int {
 	if n < 6 {
 		return 6
@@ -469,52 +409,11 @@ func memTableRows(mems []MemRow, inner int) []table.Row {
 	return rows
 }
 
-func graphColumns(inner int) []table.Column {
-	impW := 16
-	return []table.Column{
-		{Title: "Module", Width: colW(inner - impW)},
-		{Title: "Imports", Width: impW},
-	}
-}
-
-func graphTableRows(hubs []HubRow, inner int) []table.Row {
-	impW := 16
-	fileW := colW(inner - impW)
-	maxIn := 1
-	for _, h := range hubs {
-		if h.In > maxIn {
-			maxIn = h.In
-		}
-	}
-	rows := make([]table.Row, 0, len(hubs))
-	for _, h := range hubs {
-		imp := bar(float64(h.In)/float64(maxIn), 9, cPink) +
-			padL(st(cMuted, false).Render(fmt.Sprintf("%d", h.In)), impW-9)
-		rows = append(rows, table.Row{truncate(shortModule(h.Path), fileW), imp})
-	}
-	return rows
-}
-
-// shortModule trims a long import path to its last two segments for display
-// (e.g. "github.com/acme/proj/internal/store" → "internal/store"), keeping the
-// part that identifies the package. Short paths are returned unchanged.
-func shortModule(path string) string {
-	segs := strings.Split(path, "/")
-	if len(segs) <= 2 {
-		return path
-	}
-	return strings.Join(segs[len(segs)-2:], "/")
-}
-
 // ---- detail markdown (rendered by glamour) ----
 
 func memMarkdown(mr MemRow) string {
 	return fmt.Sprintf("# %s\n\n**Kind:** %s  ·  **ID:** `%s`\n",
 		mr.Title, statusLabel(mr.Kind), mr.ID)
-}
-
-func graphMarkdown(h HubRow) string {
-	return fmt.Sprintf("# %s\n\n**Imported by:** %d files (in-degree)\n", h.Path, h.In)
 }
 
 func epicMarkdown(e EpicRow, s Snapshot) string {

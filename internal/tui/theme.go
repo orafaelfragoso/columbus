@@ -18,7 +18,6 @@ var (
 	cTrack  = lipgloss.Color("#23283a")
 
 	cViolet = lipgloss.Color("#a78bfa")
-	cBar    = lipgloss.Color("#8b5cf6")
 	cGreen  = lipgloss.Color("#4ade80")
 	cYellow = lipgloss.Color("#fbbf24")
 	cRed    = lipgloss.Color("#f87171")
@@ -48,11 +47,6 @@ func statusColor(s string) color.Color {
 	default:
 		return cMuted
 	}
-}
-
-func statusBadge(s string) string {
-	c := statusColor(s)
-	return lipgloss.NewStyle().Foreground(c).Render("● " + statusLabel(s))
 }
 
 func kindColor(k string) color.Color {
@@ -148,24 +142,6 @@ func vspace(w, h int) string {
 	return strings.Join(rows, "\n")
 }
 
-func bar(pct float64, width int, fg color.Color) string {
-	if width < 1 {
-		width = 1
-	}
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 1 {
-		pct = 1
-	}
-	fill := int(pct*float64(width) + 0.5)
-	if fill > width {
-		fill = width
-	}
-	return lipgloss.NewStyle().Foreground(fg).Render(strings.Repeat("█", fill)) +
-		lipgloss.NewStyle().Foreground(cTrack).Render(strings.Repeat("█", width-fill))
-}
-
 // ---- text/width helpers ----
 
 func spread(width int, left, right string) string {
@@ -183,13 +159,6 @@ func cell(s string, w int, c color.Color) string {
 func padR(s string, w int) string {
 	if gap := w - lipgloss.Width(s); gap > 0 {
 		return s + strings.Repeat(" ", gap)
-	}
-	return s
-}
-
-func padL(s string, w int) string {
-	if gap := w - lipgloss.Width(s); gap > 0 {
-		return strings.Repeat(" ", gap) + s
 	}
 	return s
 }

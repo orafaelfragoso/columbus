@@ -5,6 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/orafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/embed"
 	"github.com/orafaelfragoso/columbus/internal/extract"
 	"github.com/orafaelfragoso/columbus/internal/grep"
 	"github.com/orafaelfragoso/columbus/internal/search"
@@ -38,11 +40,27 @@ func newSearchCmd(env *Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			// Semantic search is best-effort: a missing local runtime degrades to
+			// keyword (FTS) search rather than failing the command.
+			var embedder search.Embedder
+			if e, eerr := embed.New(env.ctx()); eerr != nil {
+				if ce := contract.AsError(eerr); ce.Code == contract.CodeRuntimeMissing {
+					proj.Logger.Info("semantic search disabled", "reason", ce.Message)
+				} else {
+					return eerr
+				}
+			} else {
+				defer e.Close()
+				embedder = e
+			}
+
 			engine := &search.Engine{
 				DB:       proj.DB,
 				WorkDir:  env.WorkDir,
 				Registry: reg,
 				Searcher: grep.NewContext(env.ctx()),
+				Embedder: embedder,
 				Logger:   proj.Logger,
 			}
 			res, err := engine.Search(search.Query{
@@ -65,7 +83,7 @@ func newSearchCmd(env *Env) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&kindFlag, "kind", "all", "what to search: code|memory|epic|task|all")
-	f.IntVar(&limit, "limit", 20, "maximum number of results")
+	f.IntVar(&limit, "limit", 15, "maximum number of results")
 	f.IntVar(&contextLines, "context-lines", 3, "lines of context around matched ranges")
 	f.BoolVar(&graph, "graph", false, "include 1-hop graph neighbors (imports/imported-by)")
 	f.BoolVar(&snippets, "snippets", false, "attach code bodies (default: locations, signatures, scores and graph edges only)")

@@ -80,6 +80,15 @@ type Query struct {
 	SnippetLines int
 }
 
+// Embedder turns the NL query into a vector. Mirrors embed.Embedder's query
+// path; search only needs EmbedQuery plus the model identity (to confirm the
+// index was built with the same model). Kept local so the semantic seam can be
+// nil (keyword fallback) and stubbed in tests without the ONNX runtime.
+type Embedder interface {
+	EmbedQuery(text string) ([]float32, error)
+	Model() string
+}
+
 // Engine runs searches against a store. When WorkDir, Registry and Searcher are
 // set the live content path is enabled; otherwise search is metadata-only.
 type Engine struct {
@@ -87,6 +96,9 @@ type Engine struct {
 	WorkDir  string
 	Registry *extract.Registry
 	Searcher grep.Searcher
+	// Embedder, when non-nil and matching the index's model, enables vector
+	// kNN-first search. Nil or a model mismatch falls back to FTS keyword search.
+	Embedder Embedder
 	// Logger records best-effort enrichment read failures at debug. nil = none.
 	Logger *slog.Logger
 }
@@ -96,6 +108,15 @@ func (e *Engine) logErr(op string, err error) { logging.DebugErr(e.Logger, op, e
 const (
 	candidateCap = 200
 	contentCap   = 500
+	// vecK is the kNN fan-out per owner type on the semantic path.
+	vecK = 50
+	// ftsRescueCap bounds the exact-identifier FTS union folded into semantic
+	// candidates (NL embeddings miss literal tokens like getUserByIDv2).
+	ftsRescueCap = 10
+	// wVector / wHeuristic blend the primary vector signal with the deterministic
+	// re-rank. They sum to 1.0.
+	wVector    = 0.70
+	wHeuristic = 0.30
 )
 
 // codeCand is an intermediate candidate accumulating signals from both sources
@@ -116,6 +137,11 @@ type codeCand struct {
 	hasTests        bool
 	mems            []store.MemoryBrief
 	contentDensity  float64
+
+	// vectorScore is 1 - cosine_distance in [0,1] from the kNN search; hasVector
+	// distinguishes a kNN hit from an FTS-only rescue candidate (vectorScore 0).
+	vectorScore float64
+	hasVector   bool
 }
 
 func candKey(grain, path, container, name string) string {
@@ -128,7 +154,7 @@ func (e *Engine) Search(q Query) (SearchResult, error) {
 		return SearchResult{}, contract.Errorf(contract.CodeUsage, "search requires a query")
 	}
 	if q.Limit <= 0 {
-		q.Limit = 20
+		q.Limit = 15
 	}
 	if q.ContextLines < 0 {
 		q.ContextLines = 0
@@ -152,19 +178,35 @@ func (e *Engine) Search(q Query) (SearchResult, error) {
 
 	if q.Kind == KindAll || q.Kind == KindCode {
 		cands := map[string]*codeCand{}
-		if err := e.metadataCandidates(match, cands); err != nil {
-			return SearchResult{}, err
-		}
-		live := e.liveEnabled()
-		if live {
-			if err := e.contentCandidates(tokens, cands); err != nil {
+		semantic := e.semanticEnabled(meta)
+		if semantic {
+			qvec, eerr := e.Embedder.EmbedQuery(q.Text)
+			if eerr != nil {
+				// Embedding the query failed at runtime: degrade rather than error.
+				res.Warnings = append(res.Warnings, "semantic search failed; using keyword fallback")
+				semantic = false
+			} else if err := e.semanticCandidates(qvec, match, cands); err != nil {
 				return SearchResult{}, err
 			}
-		} else {
-			res.Warnings = append(res.Warnings, "live content search disabled (metadata-only)")
+		} else if e.Embedder != nil {
+			// Embedder present but the index has no matching vectors.
+			res.Warnings = append(res.Warnings, "semantic search unavailable; using keyword fallback")
 		}
+		if !semantic {
+			if err := e.metadataCandidates(match, candidateCap, cands); err != nil {
+				return SearchResult{}, err
+			}
+			if e.liveEnabled() {
+				if err := e.contentCandidates(tokens, cands); err != nil {
+					return SearchResult{}, err
+				}
+			} else {
+				res.Warnings = append(res.Warnings, "live content search disabled (metadata-only)")
+			}
+		}
+		foldFileHits(cands)
 		for _, c := range cands {
-			res.Hits = append(res.Hits, c.toHit(tokens))
+			res.Hits = append(res.Hits, c.toHit(tokens, semantic))
 		}
 	}
 
@@ -204,9 +246,12 @@ func (e *Engine) liveEnabled() bool {
 	return e.WorkDir != "" && e.Registry != nil && e.Searcher != nil
 }
 
-// metadataCandidates generates candidates from FTS over metadata.
-func (e *Engine) metadataCandidates(match string, cands map[string]*codeCand) error {
-	hits, err := e.DB.SearchCodeFTS(match, candidateCap)
+// metadataCandidates generates candidates from FTS over metadata, capped at cap.
+// Existing keys are never overwritten, so it can both seed the keyword path and
+// fold an exact-identifier rescue set into semantic candidates without clobbering
+// their vector scores.
+func (e *Engine) metadataCandidates(match string, limit int, cands map[string]*codeCand) error {
+	hits, err := e.DB.SearchCodeFTS(match, limit)
 	if err != nil {
 		return err
 	}
@@ -219,8 +264,11 @@ func (e *Engine) metadataCandidates(match string, cands map[string]*codeCand) er
 			if !ok {
 				continue
 			}
-			c := e.symbolCand(sym)
-			cands[candKey("symbol", c.path, c.container, c.name)] = c
+			key := candKey("symbol", sym.Path, sym.Container, sym.Name)
+			if _, dup := cands[key]; dup {
+				continue
+			}
+			cands[key] = e.symbolCand(sym)
 		} else {
 			file, ok, err := e.DB.FileByID(h.RefID)
 			if err != nil {
@@ -229,11 +277,83 @@ func (e *Engine) metadataCandidates(match string, cands map[string]*codeCand) er
 			if !ok {
 				continue
 			}
-			c := e.fileCand(file)
-			cands[candKey("file", c.path, "", c.name)] = c
+			key := candKey("file", file.Path, "", baseName(file.Path))
+			if _, dup := cands[key]; dup {
+				continue
+			}
+			cands[key] = e.fileCand(file)
 		}
 	}
 	return nil
+}
+
+// semanticEnabled reports whether vector kNN search can run: an embedder is set
+// and the index was built with the same model (vectors across models aren't
+// comparable).
+func (e *Engine) semanticEnabled(meta store.Meta) bool {
+	return e.Embedder != nil && meta.EmbedModel != "" && meta.EmbedModel == e.Embedder.Model()
+}
+
+// semanticCandidates runs vector kNN over symbols and files, then folds in a
+// small exact-identifier FTS rescue set. vectorScore = 1 - cosine_distance.
+func (e *Engine) semanticCandidates(qvec []float32, match string, cands map[string]*codeCand) error {
+	symHits, err := e.DB.SearchVectors(qvec, []string{"symbol"}, vecK)
+	if err != nil {
+		return err
+	}
+	for _, h := range symHits {
+		sym, ok, err := e.DB.SymbolByID(h.OwnerID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		c := e.symbolCand(sym)
+		c.vectorScore = clamp01(1 - h.Distance)
+		c.hasVector = true
+		cands[candKey("symbol", c.path, c.container, c.name)] = c
+	}
+
+	fileHits, err := e.DB.SearchVectors(qvec, []string{"file"}, vecK)
+	if err != nil {
+		return err
+	}
+	for _, h := range fileHits {
+		file, ok, err := e.DB.FileByID(h.OwnerID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		c := e.fileCand(file)
+		c.vectorScore = clamp01(1 - h.Distance)
+		c.hasVector = true
+		cands[candKey("file", c.path, "", c.name)] = c
+	}
+
+	// Exact-identifier rescue: union top FTS hits the embedding may have missed
+	// (literal tokens). These carry no vector, so the blend ranks them on
+	// heuristics alone.
+	return e.metadataCandidates(match, ftsRescueCap, cands)
+}
+
+// foldFileHits drops standalone file candidates when a symbol of the same file
+// already surfaced, so a file isn't listed twice. Files with no surfaced symbol
+// (config/docs) are kept.
+func foldFileHits(cands map[string]*codeCand) {
+	symbolPaths := make(map[string]bool)
+	for _, c := range cands {
+		if c.grain == "symbol" {
+			symbolPaths[c.path] = true
+		}
+	}
+	for key, c := range cands {
+		if c.grain == "file" && symbolPaths[c.path] {
+			delete(cands, key)
+		}
+	}
 }
 
 func (e *Engine) symbolCand(sym store.SymbolRow) *codeCand {
@@ -344,20 +464,27 @@ func (e *Engine) contentCandidates(tokens []string, cands map[string]*codeCand) 
 	return nil
 }
 
-func (c *codeCand) toHit(tokens []string) Hit {
+func (c *codeCand) toHit(tokens []string, semantic bool) Hit {
 	sig := signals{
 		name: c.name, signature: c.signature, path: c.path, role: c.role,
 		importedByCount: c.importedByCount, hasTests: c.hasTests,
 		hasMemory: len(c.mems) > 0, hasFailureMemory: hasFailure(c.mems),
 		contentDensity: c.contentDensity,
 	}
-	if c.grain == "file" {
-		sig.name = c.name
+	heur := score(tokens, sig)
+	final := heur
+	reason := why(tokens, sig)
+	if semantic {
+		// Vector recall leads; heuristics re-rank and annotate.
+		final = wVector*c.vectorScore + wHeuristic*heur
+		if wVector*c.vectorScore > wHeuristic*heur {
+			reason = "semantic match"
+		}
 	}
 	return Hit{
 		Grain: c.grain, Name: c.name, SymbolKind: c.kind, Container: c.container,
 		Signature: c.signature, Path: c.path, Package: c.pkg, Role: c.role, Exported: c.exported,
-		Score: round(score(tokens, sig)), Why: why(tokens, sig), RiskLevel: riskLevel(sig),
+		Score: round(final), Why: reason, RiskLevel: riskLevel(sig),
 		Memories: toMemoryRefs(c.mems),
 	}
 }

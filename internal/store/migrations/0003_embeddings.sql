@@ -2,8 +2,10 @@
 -- index time; the DB still stores NO code bodies. content_sha gates re-embed.
 
 -- One virtual table holds every vector; chunk_meta carries the polymorphic key.
+-- Cosine distance (vectors are L2-normalized at embed time) so search can read
+-- vector_score = 1 - distance directly, with distance in [0,2].
 CREATE VIRTUAL TABLE vec_chunks USING vec0(
-    embedding float[384]
+    embedding float[384] distance_metric=cosine
 );
 
 CREATE TABLE chunk_meta (

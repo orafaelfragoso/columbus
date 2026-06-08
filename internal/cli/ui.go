@@ -16,11 +16,11 @@ import (
 	"github.com/orafaelfragoso/columbus/internal/tui"
 )
 
-// newUICmd builds `columbus ui`: a full-screen, read-mostly dashboard over the
-// project's index, memory, and structured work (epics & tasks).
-func newUICmd(env *Env) *cobra.Command {
+// newViewCmd builds `columbus view`: a full-screen, read-mostly dashboard over
+// the project's index, memory, and structured work (epics, stories & tasks).
+func newViewCmd(env *Env) *cobra.Command {
 	return &cobra.Command{
-		Use:   "ui",
+		Use:   "view",
 		Short: "open the interactive dashboard (index, memory, epics, tasks, graph)",
 		Long: "Open a full-screen terminal dashboard over the indexed project: index " +
 			"freshness, durable memory, epics & tasks, and the dependency-graph hubs. " +

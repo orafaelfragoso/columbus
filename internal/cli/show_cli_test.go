@@ -25,11 +25,11 @@ func TestShowGraphE2E(t *testing.T) {
 		}
 	}
 	initProject(t, work, data)
-	if _, _, code := runProj(t, work, data, "index"); code != 0 {
+	if _, _, code := runProj(t, work, data, "reindex"); code != 0 {
 		t.Fatalf("index exit = %d", code)
 	}
 
-	out, errb, code := runProj(t, work, data, "show", "graph", "--json")
+	out, errb, code := runProj(t, work, data, "graphs", "--json")
 	if code != 0 {
 		t.Fatalf("show graph exit = %d: %s", code, errb)
 	}
@@ -83,9 +83,9 @@ func TestShowGraphRoleFilterE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	initProject(t, work, data)
-	runProj(t, work, data, "index")
+	runProj(t, work, data, "reindex")
 
-	_, _, code := runProj(t, work, data, "show", "graph", "--role", "impl", "--max", "5", "--json")
+	_, _, code := runProj(t, work, data, "graphs", "--role", "impl", "--max", "5", "--json")
 	if code != 0 {
 		t.Fatalf("show graph --role exit = %d", code)
 	}

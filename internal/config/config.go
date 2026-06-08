@@ -18,16 +18,24 @@ import (
 const FileName = ".columbus.json"
 
 // SchemaVersion is the highest .columbus.json schema this binary understands.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // DefaultMaxFileSize is the default per-file size ceiling (1.5 MB).
 const DefaultMaxFileSize int64 = 1_572_864
 
+// DefaultEmbedModel is the pinned local embedding model (informational).
+const DefaultEmbedModel = "bge-small-en-v1.5"
+
+// DefaultEmbedRuntime is the pinned local inference runtime (informational).
+const DefaultEmbedRuntime = "onnx"
+
 // Config is the parsed .columbus.json.
 type Config struct {
-	SchemaVersion int            `json:"schema_version"`
-	ProjectID     string         `json:"project_id"`
-	Indexing      IndexingConfig `json:"indexing"`
+	SchemaVersion int             `json:"schema_version"`
+	ProjectID     string          `json:"project_id"`
+	Indexing      IndexingConfig  `json:"indexing"`
+	Embedding     EmbeddingConfig `json:"embedding"`
+	Output        OutputConfig    `json:"output"`
 }
 
 // IndexingConfig holds the indexing knobs.
@@ -36,6 +44,21 @@ type IndexingConfig struct {
 	Exclude     []string        `json:"exclude,omitempty"`
 	MaxFileSize int64           `json:"max_file_size,omitempty"`
 	Languages   map[string]bool `json:"languages,omitempty"`
+}
+
+// EmbeddingConfig pins the local semantic-search runtime. The model and runtime
+// are informational (the binary embeds one model); enabled gates whether index
+// and search attempt embeddings at all.
+type EmbeddingConfig struct {
+	Enabled bool   `json:"enabled"`
+	Model   string `json:"model,omitempty"`
+	Runtime string `json:"runtime,omitempty"`
+}
+
+// OutputConfig holds presentation preferences. Color applies only to text mode;
+// json/llm output is never colored.
+type OutputConfig struct {
+	Color bool `json:"color"`
 }
 
 // Default returns the built-in default configuration (project_id empty; set at
@@ -57,6 +80,12 @@ func Default() Config {
 			MaxFileSize: DefaultMaxFileSize,
 			Languages:   map[string]bool{},
 		},
+		Embedding: EmbeddingConfig{
+			Enabled: true,
+			Model:   DefaultEmbedModel,
+			Runtime: DefaultEmbedRuntime,
+		},
+		Output: OutputConfig{Color: false},
 	}
 }
 
@@ -73,6 +102,8 @@ var knownTopLevelKeys = map[string]bool{
 	"schema_version": true,
 	"project_id":     true,
 	"indexing":       true,
+	"embedding":      true,
+	"output":         true,
 }
 
 // Load reads and validates the config at path. A missing file is

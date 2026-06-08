@@ -32,16 +32,16 @@ func envForProject(t *testing.T, work, data string, out, errb *bytes.Buffer) Env
 	}
 }
 
-func TestIndexRequiresInit(t *testing.T) {
+func TestReindexRequiresInstall(t *testing.T) {
 	work := t.TempDir()
 	var out, errb bytes.Buffer
-	code := Execute([]string{"index", "--json"}, envForProject(t, work, t.TempDir(), &out, &errb))
+	code := Execute([]string{"reindex", "--json"}, envForProject(t, work, t.TempDir(), &out, &errb))
 	if code != 3 {
 		t.Fatalf("exit = %d, want 3 (NOT_INITIALIZED)", code)
 	}
 }
 
-func TestInitThenIndexE2E(t *testing.T) {
+func TestInstallThenReindexE2E(t *testing.T) {
 	work := t.TempDir()
 	data := t.TempDir()
 	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@e.com"}, {"config", "user.name", "T"}} {
@@ -55,25 +55,36 @@ func TestInitThenIndexE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// install onboards and runs the first index in one step.
 	var o1, e1 bytes.Buffer
-	if code := Execute([]string{"init"}, envForProject(t, work, data, &o1, &e1)); code != 0 {
-		t.Fatalf("init exit = %d: %s", code, e1.String())
+	code := Execute([]string{"install", "--json"}, envForProject(t, work, data, &o1, &e1))
+	if code != 0 {
+		t.Fatalf("install exit = %d: %s", code, e1.String())
+	}
+	var inst struct {
+		OK      bool `json:"ok"`
+		Symbols int  `json:"symbols"`
+		Files   int  `json:"files"`
+	}
+	if err := json.Unmarshal(o1.Bytes(), &inst); err != nil {
+		t.Fatalf("install not JSON: %v\n%s", err, o1.String())
+	}
+	if !inst.OK || inst.Symbols < 1 || inst.Files < 1 {
+		t.Errorf("bad install result: %+v", inst)
 	}
 
+	// reindex over an unchanged tree succeeds and reports status.
 	var out, errb bytes.Buffer
-	code := Execute([]string{"index", "--json"}, envForProject(t, work, data, &out, &errb))
-	if code != 0 {
-		t.Fatalf("index exit = %d: %s", code, errb.String())
+	if code := Execute([]string{"reindex", "--json"}, envForProject(t, work, data, &out, &errb)); code != 0 {
+		t.Fatalf("reindex exit = %d: %s", code, errb.String())
 	}
 	var env struct {
-		OK      bool `json:"ok"`
-		Indexed int  `json:"indexed"`
-		Symbols int  `json:"symbols"`
+		OK bool `json:"ok"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
-		t.Fatalf("not JSON: %v\n%s", err, out.String())
+		t.Fatalf("reindex not JSON: %v\n%s", err, out.String())
 	}
-	if !env.OK || env.Indexed < 1 || env.Symbols < 1 {
-		t.Errorf("bad index result: %+v", env)
+	if !env.OK {
+		t.Errorf("bad reindex result: %+v", env)
 	}
 }

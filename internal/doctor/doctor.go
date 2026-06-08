@@ -115,10 +115,12 @@ func Run(p Params) (Result, contract.Code) {
 		if db != nil {
 			defer db.Close()
 			add(checkIndex(p, db))
+			add(checkEmbedding(cfg, db))
 		}
 	} else {
 		add(Check{Name: "database", Status: StatusSkip, Detail: "no project"})
 		add(Check{Name: "index", Status: StatusSkip, Detail: "no project"})
+		add(Check{Name: "embedding", Status: StatusSkip, Detail: "no project"})
 	}
 
 	code := worstCode(checks, cfgCode)
@@ -184,7 +186,7 @@ func checkDatabase(p Params, cfg config.Config) (Check, *store.DB) {
 	}
 	paths := config.ProjectPaths(dir, cfg.ProjectID)
 	if _, err := os.Stat(paths.DBPath); err != nil {
-		return Check{Name: "database", Status: StatusWarn, Detail: "no database yet", Hint: "run columbus index"}, nil
+		return Check{Name: "database", Status: StatusWarn, Detail: "no database yet", Hint: "run columbus reindex"}, nil
 	}
 	db, err := store.Open(paths.DBPath)
 	if err != nil {
@@ -200,20 +202,46 @@ func checkIndex(p Params, db *store.DB) Check {
 		return Check{Name: "index", Status: StatusFail, Detail: err.Error()}
 	}
 	if meta.FilesCount == 0 {
-		return Check{Name: "index", Status: StatusWarn, Detail: "index is empty", Hint: "run columbus index"}
+		return Check{Name: "index", Status: StatusWarn, Detail: "index is empty", Hint: "run columbus reindex"}
 	}
 	detail := fmt.Sprintf("%d files, %d symbols", meta.FilesCount, meta.SymbolsCount)
 
 	git, gerr := gitrepo.DiscoverContext(ctxOrBackground(p.Ctx), p.WorkDir)
 	if gerr == nil && git.IsRepo {
 		if head, _ := git.HeadOID(); head != "" && meta.IndexedHead != "" && head != meta.IndexedHead {
-			return Check{Name: "index", Status: StatusWarn, Detail: detail + " (stale: HEAD moved since last index)", Hint: "run columbus index"}
+			return Check{Name: "index", Status: StatusWarn, Detail: detail + " (stale: HEAD moved since last index)", Hint: "run columbus reindex"}
 		}
 	}
 	if meta.Dirty {
-		return Check{Name: "index", Status: StatusWarn, Detail: detail + " (working tree dirty)", Hint: "run columbus index"}
+		return Check{Name: "index", Status: StatusWarn, Detail: detail + " (working tree dirty)", Hint: "run columbus reindex"}
 	}
 	return Check{Name: "index", Status: StatusOK, Detail: detail}
+}
+
+// checkEmbedding reports the semantic-search runtime state: whether embeddings
+// are enabled, the model the index was built with, and whether it matches the
+// model this binary/config expects (a mismatch means search silently falls back
+// to keyword until a full reindex).
+func checkEmbedding(cfg config.Config, db *store.DB) Check {
+	if !cfg.Embedding.Enabled {
+		return Check{Name: "embedding", Status: StatusOK, Detail: "disabled in config"}
+	}
+	meta, err := db.Meta().Get()
+	if err != nil {
+		return Check{Name: "embedding", Status: StatusFail, Detail: err.Error()}
+	}
+	want := cfg.Embedding.Model
+	if meta.EmbedModel == "" {
+		return Check{Name: "embedding", Status: StatusWarn, Detail: "no embeddings yet (keyword fallback)", Hint: "run columbus reindex"}
+	}
+	if want != "" && meta.EmbedModel != want {
+		return Check{
+			Name: "embedding", Status: StatusWarn,
+			Detail: fmt.Sprintf("model mismatch: index %q, config %q", meta.EmbedModel, want),
+			Hint:   "run columbus reindex --full",
+		}
+	}
+	return Check{Name: "embedding", Status: StatusOK, Detail: fmt.Sprintf("%s (%d-d)", meta.EmbedModel, meta.EmbedDim)}
 }
 
 // worstCode determines the exit code: the first hard failure governs. Warnings

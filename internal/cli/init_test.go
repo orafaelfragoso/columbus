@@ -35,9 +35,9 @@ func runIn(t *testing.T, workDir string, args ...string) (stdout, stderr string,
 	return out.String(), errb.String(), code
 }
 
-func TestInitE2EJSON(t *testing.T) {
+func TestInstallE2EJSON(t *testing.T) {
 	work := t.TempDir()
-	out, _, code := runIn(t, work, "init", "--json")
+	out, _, code := runIn(t, work, "install", "--json")
 	if code != 0 {
 		t.Fatalf("exit = %d, out=%s", code, out)
 	}
@@ -49,17 +49,17 @@ func TestInitE2EJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &env); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, out)
 	}
-	if !env.OK || env.Command != "init" || env.ProjectID != "proj_e2e0000001" {
-		t.Errorf("bad init envelope: %+v", env)
+	if !env.OK || env.Command != "install" || env.ProjectID != "proj_e2e0000001" {
+		t.Errorf("bad install envelope: %+v", env)
 	}
 	if _, err := os.Stat(filepath.Join(work, ".columbus.json")); err != nil {
 		t.Errorf(".columbus.json not written: %v", err)
 	}
 }
 
-func TestInitE2EText(t *testing.T) {
+func TestInstallE2EText(t *testing.T) {
 	work := t.TempDir()
-	out, _, code := runIn(t, work, "init")
+	out, _, code := runIn(t, work, "install")
 	if code != 0 {
 		t.Fatalf("exit = %d", code)
 	}

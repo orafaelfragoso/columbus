@@ -15,9 +15,7 @@ import (
 func newSearchCmd(env *Env) *cobra.Command {
 	var (
 		kindFlag     string
-		limit        int
 		contextLines int
-		graph        bool
 		snippets     bool
 		snippetLines int
 	)
@@ -66,9 +64,8 @@ func newSearchCmd(env *Env) *cobra.Command {
 			res, err := engine.Search(search.Query{
 				Text:         strings.Join(args, " "),
 				Kind:         kind,
-				Limit:        limit,
+				Limit:        env.Limit,
 				ContextLines: contextLines,
-				Graph:        graph,
 				Snippets:     snippets,
 				SnippetLines: snippetLines,
 			})
@@ -83,10 +80,8 @@ func newSearchCmd(env *Env) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&kindFlag, "kind", "all", "what to search: code|memory|epic|task|all")
-	f.IntVar(&limit, "limit", 15, "maximum number of results")
 	f.IntVar(&contextLines, "context-lines", 3, "lines of context around matched ranges")
-	f.BoolVar(&graph, "graph", false, "include 1-hop graph neighbors (imports/imported-by)")
-	f.BoolVar(&snippets, "snippets", false, "attach code bodies (default: locations, signatures, scores and graph edges only)")
+	f.BoolVar(&snippets, "snippets", false, "attach code bodies (default: locations, signatures and scores only)")
 	f.IntVar(&snippetLines, "snippet-lines", 0, "cap snippet length in lines when --snippets is set (0 = default 60)")
 	return cmd
 }

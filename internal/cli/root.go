@@ -21,7 +21,12 @@ type persistentFlags struct {
 	llm     bool
 	noColor bool
 	version bool
+	limit   int
+	depth   int
 }
+
+// defaultLimit caps result lists (search, memory list) unless --limit overrides.
+const defaultLimit = 15
 
 // newRootCmd builds the cobra command tree wired to env.
 func newRootCmd(env *Env) *cobra.Command {
@@ -29,7 +34,7 @@ func newRootCmd(env *Env) *cobra.Command {
 
 	root := &cobra.Command{
 		Use:           "columbus",
-		Short:         "Columbus — a local-only, deterministic code-context server",
+		Short:         "Columbus — a local-only, semantic code-context server",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		// Root with no subcommand prints version (if --version) or help.
@@ -40,6 +45,7 @@ func newRootCmd(env *Env) *cobra.Command {
 			return cmd.Help()
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			env.Limit, env.Depth = pf.limit, pf.depth
 			return env.resolveRenderOptions(pf.json, pf.llm, pf.noColor)
 		},
 	}
@@ -51,19 +57,23 @@ func newRootCmd(env *Env) *cobra.Command {
 	flags.BoolVar(&pf.json, "json", false, "emit machine-readable JSON on stdout")
 	flags.BoolVar(&pf.llm, "llm", false, "emit an LLM-oriented markdown projection")
 	flags.BoolVar(&pf.noColor, "no-color", false, "disable ANSI color in text output")
+	flags.IntVar(&pf.limit, "limit", defaultLimit, "cap result lists (search, memory list)")
+	flags.IntVar(&pf.depth, "depth", 0, "graph traversal depth (graphs; 0 = direct only)")
 	root.Flags().BoolVar(&pf.version, "version", false, "print version information")
 
 	root.AddCommand(newVersionCmd(env))
-	root.AddCommand(newInitCmd(env))
-	root.AddCommand(newIndexCmd(env))
+	root.AddCommand(newInstallCmd(env))
+	root.AddCommand(newUninstallCmd(env))
+	root.AddCommand(newReindexCmd(env))
 	root.AddCommand(newDoctorCmd(env))
 	root.AddCommand(newSearchCmd(env))
+	root.AddCommand(newGraphsCmd(env))
 	root.AddCommand(newShowCmd(env))
 	root.AddCommand(newMemoryCmd(env))
-	root.AddCommand(newEpicCmd(env))
-	root.AddCommand(newStoryCmd(env))
-	root.AddCommand(newTaskCmd(env))
-	root.AddCommand(newUICmd(env))
+	root.AddCommand(newImportCmd(env))
+	root.AddCommand(newExportCmd(env))
+	root.AddCommand(newPurgeCmd(env))
+	root.AddCommand(newViewCmd(env))
 	root.AddCommand(newSelftestCmd(env))
 
 	return root

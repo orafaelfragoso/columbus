@@ -57,6 +57,11 @@ type Env struct {
 
 	Version BuildInfo
 
+	// Limit caps result lists (search, memory list); resolved from --limit.
+	Limit int
+	// Depth bounds graph traversal (graphs); resolved from --depth.
+	Depth int
+
 	// renderOpts is resolved from persistent flags in PersistentPreRunE.
 	renderOpts render.Options
 	// exitOverride lets a command that renders its own payload still request a

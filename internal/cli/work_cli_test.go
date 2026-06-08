@@ -9,7 +9,8 @@ import (
 	"testing"
 )
 
-// initProject sets up a git repo and a columbus project sharing one data dir.
+// initProject sets up a git repo and onboards a columbus project (install runs
+// the first index) sharing one data dir.
 func initProject(t *testing.T, work, data string) {
 	t.Helper()
 	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@e.com"}, {"config", "user.name", "T"}} {
@@ -20,12 +21,12 @@ func initProject(t *testing.T, work, data string) {
 		}
 	}
 	var o, e bytes.Buffer
-	if code := Execute([]string{"init"}, envForProject(t, work, data, &o, &e)); code != 0 {
-		t.Fatalf("init exit = %d: %s", code, e.String())
+	if code := Execute([]string{"install"}, envForProject(t, work, data, &o, &e)); code != 0 {
+		t.Fatalf("install exit = %d: %s", code, e.String())
 	}
 }
 
-// runIn executes the CLI against a shared work/data project and returns
+// runProj executes the CLI against a shared work/data project and returns
 // stdout/stderr/exit.
 func runProj(t *testing.T, work, data string, args ...string) (string, string, int) {
 	t.Helper()
@@ -34,13 +35,15 @@ func runProj(t *testing.T, work, data string, args ...string) (string, string, i
 	return out.String(), errb.String(), code
 }
 
-func TestEpicTaskLifecycleE2E(t *testing.T) {
+func contains(s, sub string) bool { return bytes.Contains([]byte(s), []byte(sub)) }
+
+func TestMemoryWorkLifecycleE2E(t *testing.T) {
 	work, data := t.TempDir(), t.TempDir()
 	initProject(t, work, data)
 
-	out, errb, code := runProj(t, work, data, "epic", "add", "--title", "Ship search", "--json")
+	out, errb, code := runProj(t, work, data, "memory", "add", "epic", "--title", "Ship search", "--json")
 	if code != 0 {
-		t.Fatalf("epic add exit = %d: %s", code, errb)
+		t.Fatalf("memory add epic exit = %d: %s", code, errb)
 	}
 	var epic struct {
 		OK     bool   `json:"ok"`
@@ -54,31 +57,31 @@ func TestEpicTaskLifecycleE2E(t *testing.T) {
 		t.Fatalf("epic = %+v", epic)
 	}
 
-	_, errb, code = runProj(t, work, data, "story", "add", "--epic", "epic_001", "--title", "Indexing", "--json")
+	_, errb, code = runProj(t, work, data, "memory", "add", "story", "--parent", "epic_001", "--title", "Indexing", "--json")
 	if code != 0 {
-		t.Fatalf("story add exit = %d: %s", code, errb)
+		t.Fatalf("memory add story exit = %d: %s", code, errb)
 	}
-	_, errb, code = runProj(t, work, data, "task", "add", "--story", "story_001", "--title", "Index FTS", "--json")
+	_, errb, code = runProj(t, work, data, "memory", "add", "task", "--parent", "story_001", "--title", "Index FTS", "--json")
 	if code != 0 {
-		t.Fatalf("task add exit = %d: %s", code, errb)
+		t.Fatalf("memory add task exit = %d: %s", code, errb)
 	}
 
 	// Record a status change.
-	out, _, code = runProj(t, work, data, "task", "status", "task_001", "--to", "in_progress", "--comment", "started", "--json")
+	out, _, code = runProj(t, work, data, "memory", "update", "task", "task_001", "--status", "in_progress", "--comment", "started", "--json")
 	if code != 0 {
-		t.Fatalf("task status exit = %d", code)
+		t.Fatalf("memory update task exit = %d", code)
 	}
 	var task struct {
 		Status string `json:"status"`
-		Epic   string `json:"epic"`
+		Parent string `json:"parent"`
 	}
 	json.Unmarshal([]byte(out), &task)
-	if task.Status != "in_progress" || task.Epic != "epic_001" {
+	if task.Status != "in_progress" || task.Parent != "story_001" {
 		t.Fatalf("task = %+v", task)
 	}
 
 	// List tasks filtered by status.
-	out, _, _ = runProj(t, work, data, "task", "list", "--status", "in_progress", "--json")
+	out, _, _ = runProj(t, work, data, "memory", "list", "task", "--status", "in_progress", "--json")
 	var list struct {
 		Total int `json:"total"`
 	}
@@ -88,58 +91,43 @@ func TestEpicTaskLifecycleE2E(t *testing.T) {
 	}
 }
 
-func TestEpicDeleteRequiresForceCLI(t *testing.T) {
+func TestMemoryRemoveRequiresForceCLI(t *testing.T) {
 	work, data := t.TempDir(), t.TempDir()
 	initProject(t, work, data)
-	runProj(t, work, data, "epic", "add", "--title", "x")
+	runProj(t, work, data, "memory", "add", "epic", "--title", "x")
 
-	_, _, code := runProj(t, work, data, "epic", "delete", "epic_001")
+	_, _, code := runProj(t, work, data, "memory", "remove", "epic", "epic_001")
 	if code != 2 {
-		t.Fatalf("delete without --force exit = %d, want 2 (usage)", code)
+		t.Fatalf("remove without --force exit = %d, want 2 (usage)", code)
 	}
-	_, _, code = runProj(t, work, data, "epic", "delete", "epic_001", "--force")
+	_, _, code = runProj(t, work, data, "memory", "remove", "epic", "epic_001", "--force")
 	if code != 0 {
-		t.Fatalf("delete --force exit = %d, want 0", code)
+		t.Fatalf("remove --force exit = %d, want 0", code)
 	}
 }
 
-func TestEpicRefAndValidateCLI(t *testing.T) {
+func TestMemoryRefDriftCLI(t *testing.T) {
 	work, data := t.TempDir(), t.TempDir()
 	initProject(t, work, data)
-	runProj(t, work, data, "epic", "add", "--title", "x")
+	runProj(t, work, data, "memory", "add", "epic", "--title", "x")
 
 	// A ref to a non-indexed file is stored but reported as drift.
-	out, _, code := runProj(t, work, data, "epic", "ref", "epic_001", "--file", "ghost.go", "--json")
+	out, _, code := runProj(t, work, data, "memory", "update", "epic", "epic_001", "--add-ref", "file:ghost.go", "--json")
 	if code != 0 {
-		t.Fatalf("epic ref exit = %d", code)
+		t.Fatalf("memory update --add-ref exit = %d", code)
 	}
 	if !contains(out, "does not resolve") {
 		t.Fatalf("expected drift warning in %q", out)
 	}
-
-	out, _, code = runProj(t, work, data, "epic", "validate", "--json")
-	if code != 0 {
-		t.Fatalf("validate exit = %d", code)
-	}
-	var v struct {
-		Unresolved int  `json:"unresolved"`
-		Healthy    bool `json:"healthy"`
-	}
-	json.Unmarshal([]byte(out), &v)
-	if v.Unresolved != 1 || v.Healthy {
-		t.Fatalf("validate = %+v", v)
-	}
 }
-
-func contains(s, sub string) bool { return bytes.Contains([]byte(s), []byte(sub)) }
 
 func TestShowEpicE2E(t *testing.T) {
 	work, data := t.TempDir(), t.TempDir()
 	initProject(t, work, data)
-	runProj(t, work, data, "epic", "add", "--title", "Ship search", "--tag", "search")
-	runProj(t, work, data, "story", "add", "--epic", "epic_001", "--title", "story")
-	runProj(t, work, data, "task", "add", "--story", "story_001", "--title", "child")
-	runProj(t, work, data, "epic", "status", "epic_001", "--to", "in_progress", "--comment", "go")
+	runProj(t, work, data, "memory", "add", "epic", "--title", "Ship search", "--tag", "search")
+	runProj(t, work, data, "memory", "add", "story", "--parent", "epic_001", "--title", "story")
+	runProj(t, work, data, "memory", "add", "task", "--parent", "story_001", "--title", "child")
+	runProj(t, work, data, "memory", "update", "epic", "epic_001", "--status", "in_progress", "--comment", "go")
 
 	out, _, code := runProj(t, work, data, "show", "epic", "epic_001", "--json")
 	if code != 0 {
@@ -175,10 +163,7 @@ func TestSearchKindEpicE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	initProject(t, work, data)
-	if _, _, code := runProj(t, work, data, "index"); code != 0 {
-		t.Fatalf("index exit = %d", code)
-	}
-	runProj(t, work, data, "epic", "add", "--title", "Telemetry pipeline")
+	runProj(t, work, data, "memory", "add", "epic", "--title", "Telemetry pipeline")
 
 	out, _, code := runProj(t, work, data, "search", "Telemetry", "--kind", "epic", "--json")
 	if code != 0 {
@@ -201,9 +186,9 @@ func TestSearchKindEpicE2E(t *testing.T) {
 func TestStatusRejectsUnknownCLI(t *testing.T) {
 	work, data := t.TempDir(), t.TempDir()
 	initProject(t, work, data)
-	runProj(t, work, data, "epic", "add", "--title", "x")
+	runProj(t, work, data, "memory", "add", "epic", "--title", "x")
 
-	_, _, code := runProj(t, work, data, "epic", "status", "epic_001", "--to", "shipping")
+	_, _, code := runProj(t, work, data, "memory", "update", "epic", "epic_001", "--status", "shipping")
 	if code != 2 {
 		t.Fatalf("unknown status exit = %d, want 2", code)
 	}

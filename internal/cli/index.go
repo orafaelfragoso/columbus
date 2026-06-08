@@ -3,12 +3,15 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/orafaelfragoso/columbus/internal/contract"
+	"github.com/orafaelfragoso/columbus/internal/embed"
 	"github.com/orafaelfragoso/columbus/internal/extract"
 	"github.com/orafaelfragoso/columbus/internal/index"
 )
 
 func newIndexCmd(env *Env) *cobra.Command {
 	var full, changed, clean, status bool
+	var noEmbed bool
 	cmd := &cobra.Command{
 		Use:   "index",
 		Short: "Build or update the project index",
@@ -28,6 +31,26 @@ func newIndexCmd(env *Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			// Embeddings are best-effort: a missing local runtime degrades to a
+			// metadata-only index (search falls back to FTS) rather than failing.
+			var embedder index.Embedder
+			var embedWarn string
+			if !noEmbed && mode != index.ModeStatus && mode != index.ModeClean {
+				e, eerr := embed.New(env.ctx())
+				if eerr != nil {
+					if ce := contract.AsError(eerr); ce.Code == contract.CodeRuntimeMissing {
+						embedWarn = "embeddings disabled: " + ce.Message
+						proj.Logger.Info("embeddings disabled", "reason", ce.Message)
+					} else {
+						return eerr
+					}
+				} else {
+					defer e.Close()
+					embedder = e
+				}
+			}
+
 			ix := &index.Indexer{
 				DB:          proj.DB,
 				Registry:    reg,
@@ -35,12 +58,16 @@ func newIndexCmd(env *Env) *cobra.Command {
 				Clock:       env.Clock,
 				MaxFileSize: proj.Config.Indexing.MaxFileSize,
 				Excludes:    proj.Config.Indexing.Exclude,
+				Embedder:    embedder,
 				Ctx:         env.ctx(),
 			}
 			res, err := ix.Run(mode)
 			if err != nil {
 				proj.Logger.Info("index failed", "mode", mode.String(), "error", err.Error())
 				return err
+			}
+			if embedWarn != "" {
+				res.Warnings = append(res.Warnings, embedWarn)
 			}
 			proj.Logger.Info("index",
 				"mode", res.Mode, "indexed", res.Indexed, "unchanged", res.Unchanged,
@@ -54,6 +81,7 @@ func newIndexCmd(env *Env) *cobra.Command {
 	f.BoolVar(&changed, "changed", false, "fast path: only files dirty in the working tree")
 	f.BoolVar(&clean, "clean", false, "drop all index data (preserves config and memories)")
 	f.BoolVar(&status, "status", false, "report index state without writing")
+	f.BoolVar(&noEmbed, "no-embed", false, "skip embeddings (metadata-only index)")
 	return cmd
 }
 

@@ -46,6 +46,16 @@ func (m Mode) String() string {
 	}
 }
 
+// Embedder turns chunk text into vectors. It mirrors embed.Embedder's document
+// path; index only needs batch Embed plus the model identity. Kept as a local
+// interface so the embedding seam can be disabled (nil) for metadata-only
+// indexing and stubbed in tests without the ONNX runtime.
+type Embedder interface {
+	Embed(texts []string) ([][]float32, error)
+	Dim() int
+	Model() string
+}
+
 // Indexer runs indexing operations against a store.
 type Indexer struct {
 	DB          *store.DB
@@ -55,6 +65,9 @@ type Indexer struct {
 	MaxFileSize int64
 	Excludes    []string
 	Concurrency int
+	// Embedder, when non-nil, additionally produces one vector per symbol and
+	// file. Nil disables embeddings (search degrades to FTS).
+	Embedder Embedder
 	// Ctx cancels git subprocesses spawned during indexing. nil = background.
 	Ctx context.Context
 }
@@ -73,6 +86,11 @@ type parsed struct {
 	imports []string
 	exports []string
 	todos   []store.TodoRecord
+	// content and exsyms are retained only when embedding is enabled: the embed
+	// phase reads symbol body spans live from content (never persisted) and
+	// needs the extract symbols' line ranges. exsyms aligns 1:1 with symbols.
+	content []byte
+	exsyms  []extract.Symbol
 }
 
 // outcome is the phase-1 result for one candidate.
@@ -108,12 +126,33 @@ func (ix *Indexer) Run(mode Mode) (IndexResult, error) {
 	if mode == ModeStatus {
 		return ix.summarizeStatus(git, cands, existing, outcomes)
 	}
+
+	candSet := make(map[string]bool, len(cands))
+	for _, c := range cands {
+		candSet[c.RelPath] = true
+	}
+
+	// Capture old vectors before write() deletes/reinserts symbol rows under
+	// new ids. Skipped for full mode (everything is cleared and re-embedded).
+	var caps map[string]fileCapture
+	if ix.Embedder != nil && mode != ModeFull {
+		caps, err = ix.captureChunks(outcomes, existing, candSet)
+		if err != nil {
+			return IndexResult{}, err
+		}
+	}
+
 	res, err := ix.write(git, mode, cands, existing, outcomes)
 	if err != nil {
 		return IndexResult{}, err
 	}
 	if err := ix.resolveGraphEdges(); err != nil {
 		return IndexResult{}, err
+	}
+	if ix.Embedder != nil {
+		if err := ix.embed(mode, outcomes, caps, existing, candSet, &res); err != nil {
+			return IndexResult{}, err
+		}
 	}
 	return res, nil
 }
@@ -223,6 +262,10 @@ func (ix *Indexer) scanOne(c candidate, existing map[string]string, full, doPars
 		p.record = rec
 		if ir, err := ex.Extract(content); err == nil {
 			p.symbols, p.imports, p.exports, p.todos = mapIR(ir)
+			if ix.Embedder != nil {
+				p.content = content
+				p.exsyms = ir.Symbols
+			}
 		}
 	}
 	o.parsed = p
@@ -316,6 +359,11 @@ func (ix *Indexer) runClean(git gitrepo.Info) (IndexResult, error) {
 	})
 	if err != nil {
 		return IndexResult{}, err
+	}
+	if ix.Embedder != nil {
+		if err := ix.DB.ClearVectors(); err != nil {
+			return IndexResult{}, err
+		}
 	}
 	return res, nil
 }

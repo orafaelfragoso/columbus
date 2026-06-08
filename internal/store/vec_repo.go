@@ -2,6 +2,8 @@ package store
 
 import (
 	"database/sql"
+	"encoding/binary"
+	"math"
 	"strings"
 
 	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -148,7 +150,87 @@ func (d *DB) DeleteVectors(ownerType string, ownerIDs []int64) error {
 	})
 }
 
+// SymbolChunk is a stored symbol vector with the identity needed to carry it
+// forward across a reindex (where the symbol row is deleted and reinserted
+// under a new id, but its content — and thus its vector — may be unchanged).
+type SymbolChunk struct {
+	SymbolID  int64
+	Name      string
+	Container string
+	Signature string
+	SHA       string
+	Vec       []float32
+}
+
+// FileSymbolChunks returns the stored vectors for a file's symbols under model,
+// for the index embed phase to decide which symbols can skip re-embedding.
+func (d *DB) FileSymbolChunks(fileID int64, model string) ([]SymbolChunk, error) {
+	rows, err := d.db.Query(`SELECT s.id, s.name, s.container, s.signature, m.content_sha, v.embedding
+		FROM symbols s
+		JOIN chunk_meta m ON m.owner_type = 'symbol' AND m.owner_id = s.id AND m.model = ?
+		JOIN vec_chunks v ON v.rowid = m.rowid
+		WHERE s.file_id = ?`, model, fileID)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	defer rows.Close()
+	var out []SymbolChunk
+	for rows.Next() {
+		var c SymbolChunk
+		var blob []byte
+		if err := rows.Scan(&c.SymbolID, &c.Name, &c.Container, &c.Signature, &c.SHA, &blob); err != nil {
+			return nil, storeErr(err)
+		}
+		c.Vec = deserializeFloat32(blob)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// SymbolIDsByFile returns a file's symbol ids in insertion order (ascending id),
+// which aligns with the order symbols were written by PutFile.
+func (d *DB) SymbolIDsByFile(fileID int64) ([]int64, error) {
+	rows, err := d.db.Query(`SELECT id FROM symbols WHERE file_id = ? ORDER BY id`, fileID)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, storeErr(err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// ClearVectors drops the entire semantic layer (full/clean reindex). The vec0
+// and chunk_meta tables have no FK to files, so a wholesale reindex must clear
+// them explicitly.
+func (d *DB) ClearVectors() error {
+	return d.WithTx(func(tx *Tx) error {
+		for _, stmt := range []string{`DELETE FROM vec_chunks`, `DELETE FROM chunk_meta`} {
+			if _, err := tx.tx.Exec(stmt); err != nil {
+				return storeErr(err)
+			}
+		}
+		return nil
+	})
+}
+
 // placeholders returns "?, ?, ..." with n marks for an IN clause.
 func placeholders(n int) string {
 	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
+}
+
+// deserializeFloat32 decodes a sqlite-vec float32 blob (little-endian, 4 bytes
+// per component) back into a slice.
+func deserializeFloat32(blob []byte) []float32 {
+	v := make([]float32, len(blob)/4)
+	for i := range v {
+		v[i] = math.Float32frombits(binary.LittleEndian.Uint32(blob[i*4:]))
+	}
+	return v
 }

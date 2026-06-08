@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -71,6 +72,47 @@ func TestReopenIsIdempotent(t *testing.T) {
 	}
 	if uv != LatestVersion {
 		t.Errorf("user_version after reopen = %d, want %d", uv, LatestVersion)
+	}
+}
+
+// TestMigrate0003OnExisting0002DB builds a DB at schema v2 (no embedding
+// layer), then opens it and verifies 0003 applies cleanly on top.
+func TestMigrate0003OnExisting0002DB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "columbus.sqlite")
+	dsn := "file:" + path + "?_foreign_keys=on"
+	raw, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	migs, err := loadMigrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	for _, m := range migs {
+		if m.version <= 2 {
+			if err := applyMigration(raw, m); err != nil {
+				t.Fatalf("apply %s: %v", m.name, err)
+			}
+		}
+	}
+	raw.Close()
+
+	db, err := Open(path) // applies 0003
+	if err != nil {
+		t.Fatalf("Open over v2 DB: %v", err)
+	}
+	defer db.Close()
+
+	var uv int
+	if err := db.SQL().QueryRow("PRAGMA user_version").Scan(&uv); err != nil {
+		t.Fatalf("read user_version: %v", err)
+	}
+	if uv != LatestVersion {
+		t.Errorf("user_version = %d, want %d", uv, LatestVersion)
+	}
+	// vec0 table and the new index_meta columns must now exist and be usable.
+	if err := db.UpsertVector("file", 1, "m", "sha", vec384(1, 0, 0)); err != nil {
+		t.Fatalf("upsert after upgrade: %v", err)
 	}
 }
 

@@ -9,10 +9,16 @@ import (
 	"fmt"
 	"strings"
 
+	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	sqlite3 "github.com/mattn/go-sqlite3"
 
 	"github.com/orafaelfragoso/columbus/internal/contract"
 )
+
+// Register sqlite-vec as a SQLite auto-extension, so every connection this
+// process opens has vec0 available. The extension is statically linked (cgo
+// binding, SQLITE_CORE) — no runtime .so, single binary preserved.
+func init() { sqlitevec.Auto() }
 
 // DB is an open Columbus database.
 type DB struct {

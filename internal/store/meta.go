@@ -16,6 +16,8 @@ type Meta struct {
 	FilesCount    int
 	SymbolsCount  int
 	LastIndexedAt string
+	EmbedModel    string
+	EmbedDim      int
 }
 
 // MetaRepo reads and writes the index_meta singleton.
@@ -28,9 +30,10 @@ func (r *MetaRepo) Get() (Meta, error) {
 	var m Meta
 	var dirty int
 	err := r.db.QueryRow(`SELECT schema_version, project_id, indexed_head, dirty,
-		mem_seq, files_count, symbols_count, last_indexed_at FROM index_meta WHERE id = 1`).
+		mem_seq, files_count, symbols_count, last_indexed_at, embed_model, embed_dim
+		FROM index_meta WHERE id = 1`).
 		Scan(&m.SchemaVersion, &m.ProjectID, &m.IndexedHead, &dirty,
-			&m.MemSeq, &m.FilesCount, &m.SymbolsCount, &m.LastIndexedAt)
+			&m.MemSeq, &m.FilesCount, &m.SymbolsCount, &m.LastIndexedAt, &m.EmbedModel, &m.EmbedDim)
 	if err != nil {
 		return Meta{}, &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
 	}
@@ -41,6 +44,17 @@ func (r *MetaRepo) Get() (Meta, error) {
 // SetProjectID stores the project identifier.
 func (r *MetaRepo) SetProjectID(id string) error {
 	_, err := r.db.Exec(`UPDATE index_meta SET project_id = ? WHERE id = 1`, id)
+	if err != nil {
+		return &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
+	}
+	return nil
+}
+
+// SetEmbedInfo records the embedding model and dimension the index was built
+// with. On reindex, callers compare the stored model to the current embedder
+// and full-re-embed when it differs (vectors across models aren't comparable).
+func (r *MetaRepo) SetEmbedInfo(model string, dim int) error {
+	_, err := r.db.Exec(`UPDATE index_meta SET embed_model = ?, embed_dim = ? WHERE id = 1`, model, dim)
 	if err != nil {
 		return &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
 	}

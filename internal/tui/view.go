@@ -204,8 +204,46 @@ func (m Model) bodyView() string {
 
 func (m Model) mainView() string {
 	d := m.dims()
+	body := m.memoryTableView(d.memW-4, max(1, d.bodyH-5))
 	return panel(d.memW, d.bodyH, "MEMORY",
-		fmt.Sprintf("%d entries", m.snap.Memories), m.mem.View(), m.activeTab == tabMain)
+		fmt.Sprintf("%d entries", m.snap.Memories), body, m.activeTab == tabMain)
+}
+
+func (m Model) memoryTableView(innerW, rows int) string {
+	if innerW < 1 {
+		innerW = 1
+	}
+	cols := memColumns(innerW)
+	kindW, titleW := cols[0].Width, cols[1].Width
+	lines := []string{
+		cell(cols[0].Title, kindW, cMuted) + cell(cols[1].Title, titleW, cMuted),
+		st(cBorder, false).Render(strings.Repeat("─", innerW)),
+	}
+
+	visibleRows := max(0, rows-len(lines))
+	cursor := clampCursor(m.mem.Cursor(), len(m.snap.Mems))
+	start := 0
+	if visibleRows > 0 && cursor >= visibleRows {
+		start = cursor - visibleRows + 1
+	}
+	end := min(len(m.snap.Mems), start+visibleRows)
+	for i := start; i < end; i++ {
+		mr := m.snap.Mems[i]
+		kind := truncate(strings.ToUpper(mr.Kind), kindW)
+		title := truncate(mr.Title, titleW)
+		if i == cursor {
+			row := padR(kind, kindW) + padR(title, titleW)
+			lines = append(lines, selectionStyle().Render(row))
+			continue
+		}
+		lines = append(lines,
+			cell(kind, kindW, kindColor(mr.Kind))+cell(title, titleW, cText),
+		)
+	}
+	for len(lines) < rows {
+		lines = append(lines, strings.Repeat(" ", innerW))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) workView() string {
@@ -213,7 +251,7 @@ func (m Model) workView() string {
 	items := m.workItems()
 	body := m.kanbanView(d.memW-4, max(1, d.bodyH-5), items)
 	return panel(d.memW, d.bodyH, "WORK — "+strings.ToUpper(workKindLabel(m.workKind)),
-		fmt.Sprintf("%d items · ←/→ cycle", len(items)), body, m.activeTab == tabWork)
+		fmt.Sprintf("%d items · ←/→ columns · [/ ] type", len(items)), body, m.activeTab == tabWork)
 }
 
 func (m Model) footerView() string {
@@ -236,7 +274,7 @@ func (m Model) footerView() string {
 }
 
 func (m Model) kanbanView(innerW, rows int, items []workItem) string {
-	statuses := []string{"todo", "in_progress", "blocked", "done", "cancelled"}
+	statuses := kanbanStatuses()
 	if innerW < 1 {
 		innerW = 1
 	}
@@ -251,6 +289,10 @@ func (m Model) kanbanView(innerW, rows int, items []workItem) string {
 		cols = append(cols, kanbanColumn(widths[i], rows, status, items, selected))
 	}
 	return joinH(cols...)
+}
+
+func kanbanStatuses() []string {
+	return []string{"todo", "in_progress", "blocked", "done", "cancelled"}
 }
 
 func kanbanColumn(w, rows int, status string, items []workItem, selected workItem) string {
@@ -292,25 +334,16 @@ func kanbanColumn(w, rows int, status string, items []workItem, selected workIte
 }
 
 func kanbanCardLines(w int, item workItem, selected bool) []string {
-	title := truncate(item.IDStr+" "+item.Title, w)
-	meta := truncate(item.Meta, w)
-	if item.Kind == "epic" {
-		barW := max(4, min(10, w-lipgloss.Width(item.Meta)-1))
-		meta = item.Meta + " " + bar(item.Percent, barW, cBar)
-		if lipgloss.Width(meta) > w {
-			meta = ansi.Truncate(meta, w, "")
-		}
-	}
-	lines := []string{padR(title, w)}
-	if meta != "" {
-		lines = append(lines, padR(meta, w))
+	wrapped := wrapText(item.Title, w)
+	lines := make([]string, 0, len(wrapped))
+	for _, line := range wrapped {
+		lines = append(lines, padR(line, w))
 	}
 	if !selected {
 		return lines
 	}
-	style := lipgloss.NewStyle().Foreground(cBright).Background(selBg)
 	for i, line := range lines {
-		lines[i] = style.Render(padR(line, w))
+		lines[i] = selectionStyle().Render(padR(line, w))
 	}
 	return lines
 }

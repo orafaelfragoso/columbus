@@ -9,6 +9,8 @@ type keyMap struct {
 	Down     key.Binding
 	Left     key.Binding
 	Right    key.Binding
+	WorkPrev key.Binding
+	WorkNext key.Binding
 	Tab      key.Binding
 	ShiftTab key.Binding
 	Enter    key.Binding
@@ -24,8 +26,10 @@ func defaultKeys() keyMap {
 	return keyMap{
 		Up:       key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
 		Down:     key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
-		Left:     key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev type")),
-		Right:    key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next type")),
+		Left:     key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev column")),
+		Right:    key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next column")),
+		WorkPrev: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev type")),
+		WorkNext: key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next type")),
 		Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next view")),
 		ShiftTab: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev view")),
 		Enter:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "detail")),
@@ -39,7 +43,7 @@ func defaultKeys() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Tab, k.Up, k.Down, k.Left, k.Right, k.Enter, k.Search, k.Refresh, k.Reindex, k.Help, k.Quit}
+	return []key.Binding{k.Tab, k.Up, k.Down, k.Left, k.Right, k.WorkPrev, k.WorkNext, k.Enter, k.Search, k.Refresh, k.Reindex, k.Help, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
@@ -92,5 +96,5 @@ func mainHelpKeys(k keyMap) []key.Binding {
 }
 
 func workHelpKeys(k keyMap) []key.Binding {
-	return []key.Binding{k.Tab, k.Left, k.Right, k.Up, k.Down, k.Enter, k.Search, k.Refresh, k.Reindex, k.Help, k.Quit}
+	return []key.Binding{k.Tab, k.WorkPrev, k.WorkNext, k.Left, k.Right, k.Up, k.Down, k.Enter, k.Search, k.Refresh, k.Reindex, k.Help, k.Quit}
 }

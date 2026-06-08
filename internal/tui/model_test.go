@@ -45,6 +45,16 @@ func sampleSnap() Snapshot {
 	}
 }
 
+func kanbanSnap() Snapshot {
+	s := sampleSnap()
+	s.Epics = []EpicRow{
+		{ID: 1, IDStr: "epic_001", Title: "First todo", Status: "todo"},
+		{ID: 2, IDStr: "epic_002", Title: "Active work", Status: "in_progress"},
+		{ID: 3, IDStr: "epic_003", Title: "Second todo", Status: "todo"},
+	}
+	return s
+}
+
 func ready(t *testing.T) Model {
 	t.Helper()
 	return readyModel(t, New(fakeSource{sampleSnap()}))
@@ -54,6 +64,14 @@ func readyModel(t *testing.T, m Model) Model {
 	t.Helper()
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 168, Height: 44})
 	next, _ = next.(Model).Update(snapshotMsg{snap: sampleSnap()})
+	return next.(Model)
+}
+
+func readyWithSnap(t *testing.T, snap Snapshot) Model {
+	t.Helper()
+	m := New(fakeSource{snap})
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 168, Height: 44})
+	next, _ = next.(Model).Update(snapshotMsg{snap: snap})
 	return next.(Model)
 }
 
@@ -184,50 +202,83 @@ func TestWorkViewCyclesBetweenEpicsStoriesAndTasks(t *testing.T) {
 	if m.workKind != workEpics {
 		t.Fatalf("initial work kind = %v, want epics", m.workKind)
 	}
-	m = mustUpdate(m, ktype(tea.KeyRight))
+	m = mustUpdate(m, runes("]"))
 	if m.workKind != workStories {
-		t.Fatalf("right moved work kind = %v, want stories", m.workKind)
+		t.Fatalf("] moved work kind = %v, want stories", m.workKind)
 	}
 	items := m.workItems()
 	if len(items) != 2 || items[0].IDStr != "story_001" {
 		t.Fatalf("story workItems = %+v, want story_001 first", items)
 	}
-	m = mustUpdate(m, ktype(tea.KeyRight))
+	m = mustUpdate(m, runes("]"))
 	if m.workKind != workTasks {
-		t.Fatalf("second right moved work kind = %v, want tasks", m.workKind)
+		t.Fatalf("second ] moved work kind = %v, want tasks", m.workKind)
 	}
 	items = m.workItems()
 	if len(items) != 3 || items[0].IDStr != "task_001" {
 		t.Fatalf("task workItems = %+v, want task_001 first", items)
 	}
-	m = mustUpdate(m, ktype(tea.KeyLeft))
+	m = mustUpdate(m, runes("["))
 	if m.workKind != workStories {
-		t.Fatalf("left moved work kind = %v, want stories", m.workKind)
+		t.Fatalf("[ moved work kind = %v, want stories", m.workKind)
 	}
 }
 
-func TestWorkCursorMovesSelectedKanbanItem(t *testing.T) {
-	m := ready(t)
-	m = mustUpdate(m, ktype(tea.KeyTab), ktype(tea.KeyDown))
-	if m.workCursor != 1 {
-		t.Fatalf("workCursor after down = %d, want 1", m.workCursor)
-	}
+func TestWorkLeftRightMovesBetweenKanbanColumns(t *testing.T) {
+	m := readyWithSnap(t, kanbanSnap())
+	m = mustUpdate(m, ktype(tea.KeyTab))
+
+	m = mustUpdate(m, ktype(tea.KeyRight))
 	item, ok := m.selectedWorkItem()
-	if !ok || item.IDStr != "epic_002" {
-		t.Fatalf("selectedWorkItem = %+v, %v; want epic_002", item, ok)
+	if !ok || m.workKind != workEpics || item.IDStr != "epic_002" || item.Status != "in_progress" {
+		t.Fatalf("right should move to next kanban column without changing work type, got kind=%v item=%+v ok=%v", m.workKind, item, ok)
+	}
+
+	m = mustUpdate(m, ktype(tea.KeyLeft))
+	item, ok = m.selectedWorkItem()
+	if !ok || m.workKind != workEpics || item.IDStr != "epic_001" || item.Status != "todo" {
+		t.Fatalf("left should move back to previous kanban column without changing work type, got kind=%v item=%+v ok=%v", m.workKind, item, ok)
+	}
+}
+
+func TestWorkCursorMovesWithinCurrentKanbanColumn(t *testing.T) {
+	m := readyWithSnap(t, kanbanSnap())
+	m = mustUpdate(m, ktype(tea.KeyTab))
+
+	item, ok := m.selectedWorkItem()
+	if !ok || item.IDStr != "epic_001" || item.Status != "todo" {
+		t.Fatalf("initial selectedWorkItem = %+v, %v; want first todo epic", item, ok)
+	}
+
+	m = mustUpdate(m, ktype(tea.KeyDown))
+	item, ok = m.selectedWorkItem()
+	if !ok || item.IDStr != "epic_003" || item.Status != "todo" {
+		t.Fatalf("down should stay in todo column, got %+v, %v", item, ok)
+	}
+
+	m = mustUpdate(m, ktype(tea.KeyDown))
+	item, ok = m.selectedWorkItem()
+	if !ok || item.IDStr != "epic_001" || item.Status != "todo" {
+		t.Fatalf("down should wrap inside todo column, got %+v, %v", item, ok)
+	}
+
+	m = mustUpdate(m, ktype(tea.KeyUp))
+	item, ok = m.selectedWorkItem()
+	if !ok || item.IDStr != "epic_003" || item.Status != "todo" {
+		t.Fatalf("up should wrap inside todo column, got %+v, %v", item, ok)
 	}
 }
 
 func TestEnterOpensDetailForSelectedWorkItem(t *testing.T) {
-	m := ready(t)
+	m := readyWithSnap(t, kanbanSnap())
 	m = mustUpdate(m, ktype(tea.KeyTab), ktype(tea.KeyDown))
 	next, _ := m.Update(ktype(tea.KeyEnter))
 	nm := next.(Model)
 	if !nm.showDetail {
 		t.Fatal("enter did not open the detail pane")
 	}
-	if !strings.Contains(nm.detailTitle, "epic_002") {
-		t.Fatalf("detail title = %q, want epic_002", nm.detailTitle)
+	if !strings.Contains(nm.detailTitle, "epic_003") {
+		t.Fatalf("detail title = %q, want epic_003", nm.detailTitle)
 	}
 	// esc closes it.
 	back, _ := nm.Update(ktype(tea.KeyEscape))
@@ -516,11 +567,17 @@ func TestRefreshKeyEntersLoadingState(t *testing.T) {
 }
 
 func TestMainMemoryTableShowsSelectionHighlight(t *testing.T) {
-	const selBgSeq = "48;2;36;29;61" // selBg (#241d3d) rendered as an ANSI background
+	const borderBgSeq = "48;2;167;139;250" // active panel border (#a78bfa) rendered as an ANSI background
 	m := ready(t)
-	if !strings.Contains(m.mem.View(), selBgSeq) {
-		t.Fatal("main memory table should highlight its selected row")
+	for _, line := range strings.Split(m.mainView(), "\n") {
+		if strings.Contains(line, "use WAL") {
+			if !strings.Contains(line, borderBgSeq) {
+				t.Fatalf("selected memory row should use the border color as its row background:\n%s", line)
+			}
+			return
+		}
 	}
+	t.Fatalf("selected memory row not found:\n%s", m.mainView())
 }
 
 func TestSearchInProgressShowsHeaderFeedback(t *testing.T) {
@@ -591,10 +648,43 @@ func TestWorkViewRendersKanbanColumns(t *testing.T) {
 	m := ready(t)
 	m = mustUpdate(m, ktype(tea.KeyTab))
 	out := ansi.Strip(m.View().Content)
-	for _, want := range []string{"WORK", "EPICS", "TODO", "IN PROGRESS", "epic_001", "epic_002"} {
+	for _, want := range []string{"WORK", "EPICS", "TODO", "IN PROGRESS", "Indexing core", "Search ranking"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("work kanban missing %q:\n%s", want, out)
 		}
+	}
+	for _, notWant := range []string{"epic_001", "epic_002"} {
+		if strings.Contains(out, notWant) {
+			t.Fatalf("work kanban card should not render id %q:\n%s", notWant, out)
+		}
+	}
+}
+
+func TestKanbanCardsRenderOnlyTitle(t *testing.T) {
+	title := "Confirm quit before closing with a focused modal"
+	lines := kanbanCardLines(40, workItem{
+		Kind: "task", IDStr: "task_001", Title: title, Meta: "story_001",
+	}, false)
+	out := ansi.Strip(strings.Join(lines, "\n"))
+	if got := strings.Join(strings.Fields(out), " "); got != title {
+		t.Fatalf("kanban card title = %q, want full title %q", got, title)
+	}
+	for _, notWant := range []string{"task_001", "story_001"} {
+		if strings.Contains(out, notWant) {
+			t.Fatalf("kanban card should not render id %q: %q", notWant, out)
+		}
+	}
+	if !strings.Contains(out, "Confirm quit before closing") {
+		t.Fatalf("kanban card missing title: %q", out)
+	}
+}
+
+func TestKanbanSelectionUsesActiveBorderColor(t *testing.T) {
+	const activeBorderBgSeq = "48;2;167;139;250" // active panel border (#a78bfa) rendered as an ANSI background
+	lines := kanbanCardLines(40, workItem{Kind: "epic", IDStr: "epic_001", Title: "Indexing core"}, true)
+	out := strings.Join(lines, "\n")
+	if !strings.Contains(out, activeBorderBgSeq) {
+		t.Fatalf("selected kanban card should use active border color as background:\n%s", out)
 	}
 }
 

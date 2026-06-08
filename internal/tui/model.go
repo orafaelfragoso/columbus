@@ -206,7 +206,7 @@ func tableStyles(active bool) table.Styles {
 		Padding(0, 0).Bold(false).Foreground(cMuted)
 	s.Cell = s.Cell.Padding(0, 0).Foreground(cText)
 	if active {
-		s.Selected = s.Selected.Foreground(cBright).Background(selBg).Bold(true)
+		s.Selected = selectionStyle()
 	} else {
 		s.Selected = lipgloss.NewStyle().Foreground(cMuted)
 	}
@@ -437,10 +437,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.mem, cmd = m.mem.Update(msg)
 	case tabWork:
 		switch {
-		case key.Matches(msg, m.keys.Left):
+		case key.Matches(msg, m.keys.WorkPrev):
 			m.cycleWorkKind(-1)
-		case key.Matches(msg, m.keys.Right):
+		case key.Matches(msg, m.keys.WorkNext):
 			m.cycleWorkKind(1)
+		case key.Matches(msg, m.keys.Left):
+			m.moveWorkColumn(-1)
+		case key.Matches(msg, m.keys.Right):
+			m.moveWorkColumn(1)
 		case key.Matches(msg, m.keys.Up):
 			m.moveWorkCursor(-1)
 		case key.Matches(msg, m.keys.Down):
@@ -475,7 +479,82 @@ func (m *Model) cycleWorkKind(dir int) {
 }
 
 func (m *Model) moveWorkCursor(dir int) {
-	m.workCursor = clampCursor(m.workCursor+dir, len(m.workItems()))
+	items := m.workItems()
+	if len(items) == 0 {
+		m.workCursor = 0
+		return
+	}
+
+	m.workCursor = clampCursor(m.workCursor, len(items))
+	status := items[m.workCursor].Status
+	indices := make([]int, 0, len(items))
+	current := 0
+	for i, item := range items {
+		if item.Status != status {
+			continue
+		}
+		if i == m.workCursor {
+			current = len(indices)
+		}
+		indices = append(indices, i)
+	}
+	if len(indices) == 0 {
+		return
+	}
+	next := (current + dir + len(indices)) % len(indices)
+	m.workCursor = indices[next]
+}
+
+func (m *Model) moveWorkColumn(dir int) {
+	items := m.workItems()
+	if len(items) == 0 {
+		m.workCursor = 0
+		return
+	}
+
+	m.workCursor = clampCursor(m.workCursor, len(items))
+	statuses := kanbanStatuses()
+	currentStatus := items[m.workCursor].Status
+	currentStatusIdx := -1
+	for i, status := range statuses {
+		if status == currentStatus {
+			currentStatusIdx = i
+			break
+		}
+	}
+	if currentStatusIdx < 0 {
+		return
+	}
+
+	row := 0
+	for i := 0; i < m.workCursor; i++ {
+		if items[i].Status == currentStatus {
+			row++
+		}
+	}
+
+	for step := 1; step <= len(statuses); step++ {
+		nextStatusIdx := (currentStatusIdx + dir*step) % len(statuses)
+		if nextStatusIdx < 0 {
+			nextStatusIdx += len(statuses)
+		}
+		indices := workIndicesByStatus(items, statuses[nextStatusIdx])
+		if len(indices) == 0 {
+			continue
+		}
+		m.workCursor = indices[min(row, len(indices)-1)]
+		return
+	}
+}
+
+func workIndicesByStatus(items []workItem, status string) []int {
+	indices := make([]int, 0, len(items))
+	for i, item := range items {
+		if item.Status == status {
+			indices = append(indices, i)
+		}
+	}
+	return indices
 }
 
 func (m *Model) openSearch() tea.Cmd {

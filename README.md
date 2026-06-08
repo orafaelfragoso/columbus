@@ -19,30 +19,34 @@ Your coding agent is brilliant at reasoning and bad at locating and remembering.
 So it greps in the dark, reads whole files to use ten lines, and leans on stale
 `.md` context that quietly lies.
 
-**Columbus** is a **local-only, deterministic code-context server** your agent
-calls as a tool. Ask it where something is and get ranked, LLM-ready context
-with **exact line ranges** — reconstructed live from your working tree, so it's
-**never stale**. It also owns your project's durable memory, so the agent stops
-re-discovering the codebase every session.
+**Columbus** is a **local-only, semantic code-context server** your agent calls
+as a tool. Ask it — in plain language — where something is and get ranked,
+LLM-ready context with **exact line ranges**, reconstructed live from your
+working tree so it's **never stale**. It also owns your project's durable
+memory, so the agent stops re-discovering the codebase every session.
 
-_No embeddings. No cloud. No LLM calls. Same query, same answer, every time._
+_Local embeddings, no cloud, no LLM calls — natural-language search that stays on
+your machine._
 
 > [!IMPORTANT]
 > **It cannot go stale, because it never stores your code.** The database holds
-> **metadata and git anchors only** — every snippet and exact line range is
-> rebuilt live at query time by re-parsing the working tree. The answer always
-> matches the code as it is *right now*.
+> **metadata, git anchors and embedding vectors only** — every snippet and exact
+> line range is rebuilt live at query time by re-parsing the working tree. The
+> vectors are a derived index, not your source; the answer always matches the
+> code as it is *right now*.
 
 Columbus does exactly three things:
 
-1. **Index** — chart the codebase with embedded tree-sitter (metadata + git
-   anchors only, never your code).
-2. **Search** — return ranked, LLM-ready context with exact line ranges,
-   optionally with the 1-hop dependency graph.
+1. **Index** — chart the codebase with embedded tree-sitter and embed each
+   symbol/file on-device (metadata + git anchors + vectors, never your code).
+2. **Search** — natural-language semantic search: vector retrieval re-ranked by
+   deterministic heuristics, returning ranked context with exact line ranges.
 3. **Memory** — own the project's durable record: decisions, plus structured
-   epics & tasks with history, references, and drift checks.
+   epics → stories → tasks with history, references, and drift checks.
 
-There are no LLM calls: all ranking, "why relevant" text, and risk hints come from deterministic heuristics.
+Embeddings run **on-device** with a bundled ONNX model (bge-small-en-v1.5); there
+are no LLM calls and nothing leaves your machine. Ranking, "why relevant" text,
+and risk hints are deterministic.
 
 ## Why Columbus
 
@@ -51,12 +55,12 @@ bleed tokens and go wrong. Columbus takes that off its plate.
 
 | Without Columbus | With Columbus |
 |---|---|
-| Greps and reads whole files to find ten relevant lines | One call returns ranked context with **exact line ranges** |
-| Different exploration path every run | **Deterministic** — same query, same answer |
+| Greps for the exact word and misses the concept | **Natural-language** semantic search finds it by meaning |
+| Reads whole files to find ten relevant lines | One call returns ranked context with **exact line ranges** |
 | Context drifts; stale `.md` files confidently lie | Snippets rebuilt **live** from the working tree — never stale |
-| Re-discovers the codebase every session | **Durable memory** — decisions, epics & tasks persist |
+| Re-discovers the codebase every session | **Durable memory** — decisions, epics, stories & tasks persist |
 | Repo cluttered with `.cursorrules` / scattered context files | Memory is queryable and **git-excluded**, not committed noise |
-| Embeddings shipped to a cloud, per-query cost | **Local-only**, zero LLM calls, nothing leaves your machine |
+| Embeddings shipped to a cloud, per-query cost | **On-device** embeddings, zero LLM calls, nothing leaves your machine |
 
 > [!NOTE]
 > **Proof, measured.** A with/without study (tokens to first correct location,
@@ -115,7 +119,7 @@ columbus doctor                  # verify git, vec0, onnxruntime runtime, model 
 
 Then point your agent at Columbus as a tool (see
 [Use it with your agent](#use-it-with-your-agent)). The agent stops grepping and
-starts asking; `columbus ui` gives *you* the live view of what it's doing.
+starts asking; `columbus view` gives *you* the live view of what it's doing.
 
 ## Documentation
 
@@ -175,7 +179,7 @@ always present, so an agent can read first and drill down only where it matters.
 ```sh
 columbus search "where do we parse config" --llm             # ranked locations, no bodies (cheap)
 columbus search "where do we parse config" --llm --snippets  # same, with code bodies inline
-columbus search NewServer --graph --json                     # ranked hits + 1-hop imports, machine-readable
+columbus graphs --in internal/server --json                  # dependency graph as {nodes, edges}, machine-readable
 ```
 
 > [!NOTE]
@@ -184,66 +188,78 @@ columbus search NewServer --graph --json                     # ranked hits + 1-h
 
 ## Commands
 
+### Lifecycle
+
+```sh
+columbus install                    # onboard: write config, create db, first index + embed
+columbus reindex                    # re-chunk + re-embed changes (also --full/--changed/--clean/--status)
+columbus doctor                     # environment + project health (git, vec0, runtime, model, index)
+columbus uninstall                  # remove config + delete the db (confirm; --yes when non-TTY)
+columbus purge                      # clear all records + reset config to defaults (confirm; --yes)
+```
+
 ### Search & navigate
 
 ```sh
-columbus search "parse config"      # ranked, LLM-ready results
-columbus search NewServer --graph   # include 1-hop imports/imported-by
+columbus search "where do we parse config"    # natural-language, ranked, LLM-ready results
+columbus search "auth token check" --kind all # code + memory + epics/stories/tasks
 columbus show symbol Engine --in internal/search
 columbus show file internal/store/store.go
-columbus show graph --json          # whole dependency graph as {nodes, edges}
-columbus show graph --role impl --in internal/store   # narrow + induce subgraph
-columbus index                      # also --full/--changed/--clean/--status
-columbus doctor                     # environment + project health
+columbus graphs --json                        # whole dependency graph as {nodes, edges}
+columbus graphs --role impl --in internal/store   # narrow + induce subgraph
 ```
 
-### Memory
+Search is semantic: the query is embedded on-device and matched by vector
+similarity, then re-ranked by deterministic heuristics. With no runtime library
+present it degrades to keyword (FTS) ranking — `columbus doctor` shows which.
+
+### Memory (durable knowledge)
+
+One surface over every durable-knowledge kind —
+`epic`, `story`, `task`, `context` (free-form decisions/patterns/…), and `tag`
+(read-only). All of it is embedded and shows up in semantic `search`.
 
 ```sh
-columbus memory add --kind decision --title "Use WAL" --body "readers never block writers" \
-  --evidence internal/store/store.go:30-40 --link symbol:Open --tag db
-columbus memory list
-columbus memory search journal
-columbus memory validate            # evidence drift + link resolution (warnings, never fatal)
-columbus memory export --out knowledge.json   # unified doc: memories + epics + tasks
-columbus memory import knowledge.json
+columbus memory add context --type decision --title "Use WAL" --body "readers never block writers" \
+  --evidence internal/store/store.go:30-40 --ref symbol:Open --tag db
+columbus memory add epic  --title "Ship search" --tag infra
+columbus memory add story --parent epic_001 --title "Indexing"
+columbus memory add task  --parent story_001 --title "Index FTS"
+columbus memory update task task_001 --status in_progress --comment "started"
+columbus memory update epic epic_001 --add-ref file:internal/search/search.go
+columbus memory list epic --status in_progress
+columbus memory list task --parent story_001
+columbus memory list tag                        # distinct tags + counts
+columbus memory remove epic epic_001 --force    # destructive; cascades stories+tasks; id retired
 ```
 
-### Epics & tasks
-
-Structured memory: a passive, durable record of work (status, history, comments,
-references) alongside memories. Columbus *stores and retrieves* — it never
-drives, gates, or enforces transitions. `status` is just a recorded field from a
+The work hierarchy is **epic → story → task**: a passive, durable record (status,
+append-only history, comments, references). Columbus *stores and retrieves* — it
+never drives, gates, or enforces transitions. `status` is a recorded field from a
 fixed vocabulary: `todo`, `in_progress`, `blocked`, `done`, `cancelled` (any →
-any; no order enforced).
+any). References are drift-checked against indexed
+`file`/`dir`/`memory`/`symbol` targets; `show file|symbol|memory` lists in
+reverse the work that references that entity ("what touches this?").
 
 ```sh
-columbus epic add --title "Ship search" --tag infra
-columbus task add --epic epic_001 --title "Index FTS"
-columbus task status task_001 --to in_progress --comment "started"
-columbus task comment task_001 --text "blocked on tokenizer choice"
-columbus epic ref epic_001 --file internal/search/search.go --memory mem_003
-columbus epic list --status in_progress
-columbus task list --epic epic_001
-columbus show epic epic_001          # fields, refs (inline drift), history, child tasks
+columbus show epic epic_001          # fields, refs (inline drift), history, child stories/tasks
 columbus show task task_001
-columbus epic validate               # reference drift scan (warnings, never fatal)
-columbus search "search" --kind epic # epics/tasks are searchable (also in --kind all)
-columbus epic delete epic_001 --force   # destructive; cascades child tasks; id retired
+columbus search "search" --kind epic # work items are searchable (also in --kind all)
 ```
 
-Each epic/task carries an append-only event log (every status change and
-comment), a denormalized current status for fast `list --status`, and
-drift-checked references to indexed `file`/`dir`/`memory`/`symbol` targets.
-`show file|symbol|memory` lists in reverse the epics and tasks that reference
-that entity ("what work touches this?").
+### Import / export
+
+```sh
+columbus export --out knowledge.json   # full knowledge doc: memories + epics + stories + tasks
+columbus import knowledge.json         # vectors are not exported — reindex rebuilds them
+```
 
 ### Dashboard
 
-`columbus ui` opens a full-screen, read-mostly terminal dashboard over the
+`columbus view` opens a full-screen, read-mostly terminal dashboard over the
 indexed project: index freshness and counts, durable memory, epics & tasks
 (with task roll-up progress), and the dependency-graph hubs. It auto-refreshes,
-so external `columbus index`/agent edits appear on their own.
+so external `columbus reindex`/agent edits appear on their own.
 
 Keys: `tab` switch pane · `↑/↓` (or `j/k`) navigate · `enter` detail (full body,
 refs, history) · `/` search across code, memory, epics & tasks · `esc` back ·

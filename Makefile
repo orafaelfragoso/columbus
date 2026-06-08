@@ -9,6 +9,15 @@ export CGO_ENABLED
 CGO_LDFLAGS ?= -L$(HOME)/.columbus/libs
 export CGO_LDFLAGS
 
+# The sqlite-vec cgo binding compiles sqlite-vec.c with -DSQLITE_CORE, whose
+# header does `#include "sqlite3.h"`. mattn/go-sqlite3 statically compiles SQLite
+# but names its header sqlite3-binding.h, so the bare sqlite3.h is only found via
+# a system header — which is absent under zig cross-compiles (build fails) and is
+# Apple's deprecated copy on macOS (noisy). Ship the matching official header and
+# put it on the include path so every toolchain resolves it identically.
+CGO_CFLAGS := -I$(CURDIR)/third_party/sqlite $(CGO_CFLAGS)
+export CGO_CFLAGS
+
 # Where `make install` drops the binary. Override with `make install PREFIX=/usr/local/bin`.
 PREFIX ?= $(HOME)/.local/bin
 

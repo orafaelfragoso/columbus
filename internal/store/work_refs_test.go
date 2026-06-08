@@ -39,6 +39,7 @@ func TestWorkRefsRoundTrip(t *testing.T) {
 func TestWorkForTarget(t *testing.T) {
 	db := openTemp(t)
 	epicID := seedEpic(t, db, "epic ref")
+	storyID := seedStory(t, db, epicID, "story ref")
 
 	var taskID int64
 	err := db.WithTx(func(tx *Tx) error {
@@ -46,7 +47,7 @@ func TestWorkForTarget(t *testing.T) {
 		if taskID, e = tx.NextTaskSeq(); e != nil {
 			return e
 		}
-		if e = tx.InsertTask(taskID, epicID, "task ref", "", "in_progress", "t0", "t0"); e != nil {
+		if e = tx.InsertTask(taskID, epicID, storyID, "task ref", "", "in_progress", "t0", "t0"); e != nil {
 			return e
 		}
 		if e = tx.AddWorkRef("epic", epicID, "file", "internal/a.go"); e != nil {

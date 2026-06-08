@@ -39,6 +39,9 @@ func (t *Tx) DeleteMemory(id int64) error {
 	if err := t.DeleteMemoryFTS(id); err != nil {
 		return err
 	}
+	if err := t.deleteOwnerVectors("memory", id); err != nil {
+		return err
+	}
 	_, err := t.tx.Exec(`DELETE FROM memories WHERE id = ?`, id)
 	return storeErr(err)
 }

@@ -285,20 +285,20 @@ func newEpicCommentCmd(env *Env) *cobra.Command {
 }
 
 func newTaskAddCmd(env *Env) *cobra.Command {
-	var epic, title, body string
+	var story, title, body string
 	var tags []string
 	cmd := &cobra.Command{
 		Use:   "add",
-		Short: "Add a task under an epic",
+		Short: "Add a task under a story",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withWorkManager(env, "task.add", slog.LevelInfo, func(m *work.Manager) (render.Payload, error) {
-				return m.TaskAdd(work.TaskAddParams{Epic: epic, Title: title, Body: body, Tags: tags})
+				return m.TaskAdd(work.TaskAddParams{Story: story, Title: title, Body: body, Tags: tags})
 			})
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&epic, "epic", "", "parent epic id (epic_NNN)")
+	f.StringVar(&story, "story", "", "parent story id (story_NNN)")
 	f.StringVar(&title, "title", "", "short title")
 	f.StringVar(&body, "body", "", "description")
 	f.StringArrayVar(&tags, "tag", nil, "tag (repeatable)")
@@ -306,11 +306,11 @@ func newTaskAddCmd(env *Env) *cobra.Command {
 }
 
 func newTaskEditCmd(env *Env) *cobra.Command {
-	var title, body, epic string
+	var title, body, story string
 	var addTags, removeTags []string
 	cmd := &cobra.Command{
 		Use:   "edit <id>",
-		Short: "Edit a task (partial; --epic re-parents)",
+		Short: "Edit a task (partial; --story re-parents)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p := work.TaskEditParams{AddTags: addTags, RemoveTags: removeTags}
@@ -320,8 +320,8 @@ func newTaskEditCmd(env *Env) *cobra.Command {
 			if cmd.Flags().Changed("body") {
 				p.Body = &body
 			}
-			if cmd.Flags().Changed("epic") {
-				p.Epic = &epic
+			if cmd.Flags().Changed("story") {
+				p.Story = &story
 			}
 			return withWorkManager(env, "task.edit", slog.LevelInfo, func(m *work.Manager) (render.Payload, error) {
 				return m.TaskEdit(args[0], p)
@@ -331,7 +331,7 @@ func newTaskEditCmd(env *Env) *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&title, "title", "", "new title")
 	f.StringVar(&body, "body", "", "new body")
-	f.StringVar(&epic, "epic", "", "re-parent to this epic id")
+	f.StringVar(&story, "story", "", "re-parent to this story id")
 	f.StringArrayVar(&addTags, "add-tag", nil, "add tag (repeatable)")
 	f.StringArrayVar(&removeTags, "remove-tag", nil, "remove tag (repeatable)")
 	return cmd
@@ -354,18 +354,19 @@ func newTaskDeleteCmd(env *Env) *cobra.Command {
 }
 
 func newTaskListCmd(env *Env) *cobra.Command {
-	var epic, status, tag string
+	var epic, story, status, tag string
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List tasks",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withWorkManager(env, "task.list", slog.LevelDebug, func(m *work.Manager) (render.Payload, error) {
-				return m.TaskList(epic, status, tag)
+				return m.TaskList(epic, story, status, tag)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&epic, "epic", "", "filter by parent epic id")
+	cmd.Flags().StringVar(&story, "story", "", "filter by parent story id")
 	cmd.Flags().StringVar(&status, "status", "", "filter by status")
 	cmd.Flags().StringVar(&tag, "tag", "", "filter by tag")
 	return cmd

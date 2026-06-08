@@ -47,10 +47,11 @@ func (t *Tx) SetTaskSeqAtLeast(n int64) error {
 	return storeErr(err)
 }
 
-// InsertTask writes a task row. The NOT NULL epic_id FK rejects a missing epic.
-func (t *Tx) InsertTask(id, epicID int64, title, body, status, createdAt, updatedAt string) error {
-	_, err := t.tx.Exec(`INSERT INTO tasks (id, epic_id, title, body, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, id, epicID, title, body, status, createdAt, updatedAt)
+// InsertTask writes a task row under a story. epicID is the story's epic,
+// denormalized onto the task; the NOT NULL FKs reject a missing epic/story.
+func (t *Tx) InsertTask(id, epicID, storyID int64, title, body, status, createdAt, updatedAt string) error {
+	_, err := t.tx.Exec(`INSERT INTO tasks (id, epic_id, story_id, title, body, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, epicID, storyID, title, body, status, createdAt, updatedAt)
 	return storeErr(err)
 }
 
@@ -61,10 +62,120 @@ func (t *Tx) UpdateTask(id int64, title, body, updatedAt string) error {
 	return storeErr(err)
 }
 
-// ReparentTask moves a task to a different epic.
-func (t *Tx) ReparentTask(id, epicID int64, updatedAt string) error {
-	_, err := t.tx.Exec(`UPDATE tasks SET epic_id = ?, updated_at = ? WHERE id = ?`, epicID, updatedAt, id)
+// ReparentTask moves a task to a different story (and its epic).
+func (t *Tx) ReparentTask(id, epicID, storyID int64, updatedAt string) error {
+	_, err := t.tx.Exec(`UPDATE tasks SET epic_id = ?, story_id = ?, updated_at = ? WHERE id = ?`,
+		epicID, storyID, updatedAt, id)
 	return storeErr(err)
+}
+
+// --- stories: mirror the epic/task write surface ---
+
+// NextStorySeq increments and returns the per-project story id counter.
+func (t *Tx) NextStorySeq() (int64, error) {
+	var n int64
+	if err := t.tx.QueryRow(`UPDATE index_meta SET story_seq = story_seq + 1 WHERE id = 1 RETURNING story_seq`).Scan(&n); err != nil {
+		return 0, storeErr(err)
+	}
+	return n, nil
+}
+
+// SetStorySeqAtLeast raises the story id counter to at least n.
+func (t *Tx) SetStorySeqAtLeast(n int64) error {
+	_, err := t.tx.Exec(`UPDATE index_meta SET story_seq = MAX(story_seq, ?) WHERE id = 1`, n)
+	return storeErr(err)
+}
+
+// InsertStory writes a story row. The NOT NULL epic_id FK rejects a missing epic.
+func (t *Tx) InsertStory(id, epicID int64, title, body, status, createdAt, updatedAt string) error {
+	_, err := t.tx.Exec(`INSERT INTO stories (id, epic_id, title, body, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, id, epicID, title, body, status, createdAt, updatedAt)
+	return storeErr(err)
+}
+
+// UpdateStory updates the non-historical metadata of a story (title/body).
+func (t *Tx) UpdateStory(id int64, title, body, updatedAt string) error {
+	_, err := t.tx.Exec(`UPDATE stories SET title = ?, body = ?, updated_at = ? WHERE id = ?`,
+		title, body, updatedAt, id)
+	return storeErr(err)
+}
+
+// ReparentStory moves a story to a different epic. Child tasks keep their
+// story_id; their denormalized epic_id is realigned to the new epic.
+func (t *Tx) ReparentStory(id, epicID int64, updatedAt string) error {
+	if _, err := t.tx.Exec(`UPDATE stories SET epic_id = ?, updated_at = ? WHERE id = ?`, epicID, updatedAt, id); err != nil {
+		return storeErr(err)
+	}
+	_, err := t.tx.Exec(`UPDATE tasks SET epic_id = ?, updated_at = ? WHERE story_id = ?`, epicID, updatedAt, id)
+	return storeErr(err)
+}
+
+// SetStoryStatus updates the denormalized current status of a story.
+func (t *Tx) SetStoryStatus(id int64, status, updatedAt string) error {
+	_, err := t.tx.Exec(`UPDATE stories SET status = ?, updated_at = ? WHERE id = ?`, status, updatedAt, id)
+	return storeErr(err)
+}
+
+// StoryExists reports existence through the transaction's own connection.
+func (t *Tx) StoryExists(id int64) (bool, error) {
+	var n int
+	if err := t.tx.QueryRow(`SELECT COUNT(*) FROM stories WHERE id = ?`, id).Scan(&n); err != nil {
+		return false, storeErr(err)
+	}
+	return n > 0, nil
+}
+
+// DeleteStory hard-deletes a story, cascading its tasks (FK) and cleaning the
+// polymorphic work_* rows and vectors for the story and each child task.
+func (t *Tx) DeleteStory(id int64) error {
+	taskIDs, err := t.taskIDsForStory(id)
+	if err != nil {
+		return err
+	}
+	for _, tid := range taskIDs {
+		if err := t.deleteWorkAssociations("task", tid); err != nil {
+			return err
+		}
+	}
+	if err := t.deleteWorkAssociations("story", id); err != nil {
+		return err
+	}
+	_, err = t.tx.Exec(`DELETE FROM stories WHERE id = ?`, id)
+	return storeErr(err)
+}
+
+func (t *Tx) taskIDsForStory(storyID int64) ([]int64, error) {
+	rows, err := t.tx.Query(`SELECT id FROM tasks WHERE story_id = ?`, storyID)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, storeErr(err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+func (t *Tx) storyIDsForEpic(epicID int64) ([]int64, error) {
+	rows, err := t.tx.Query(`SELECT id FROM stories WHERE epic_id = ?`, epicID)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, storeErr(err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // DeleteTask hard-deletes a task and its polymorphic associations.
@@ -76,9 +187,10 @@ func (t *Tx) DeleteTask(id int64) error {
 	return storeErr(err)
 }
 
-// DeleteEpic hard-deletes an epic and everything hanging off it: child tasks
-// (FK cascade) plus the polymorphic work_tags/events/refs/fts rows for the epic
-// and each child task (no owner FK, so cleaned up explicitly).
+// DeleteEpic hard-deletes an epic and everything hanging off it: child stories
+// and their tasks (FK cascade) plus the polymorphic work_tags/events/refs/fts
+// rows and vectors for the epic, each story and each task (no owner FK, so
+// cleaned up explicitly).
 func (t *Tx) DeleteEpic(id int64) error {
 	taskIDs, err := t.taskIDsForEpic(id)
 	if err != nil {
@@ -86,6 +198,15 @@ func (t *Tx) DeleteEpic(id int64) error {
 	}
 	for _, tid := range taskIDs {
 		if err := t.deleteWorkAssociations("task", tid); err != nil {
+			return err
+		}
+	}
+	storyIDs, err := t.storyIDsForEpic(id)
+	if err != nil {
+		return err
+	}
+	for _, sid := range storyIDs {
+		if err := t.deleteWorkAssociations("story", sid); err != nil {
 			return err
 		}
 	}
@@ -115,15 +236,31 @@ func (t *Tx) taskIDsForEpic(epicID int64) ([]int64, error) {
 	return out, rows.Err()
 }
 
-// deleteWorkAssociations removes the polymorphic tags/events/refs/fts rows for
-// one owner.
+// deleteWorkAssociations removes the polymorphic tags/events/refs/fts rows and
+// the semantic vector for one owner.
 func (t *Tx) deleteWorkAssociations(ownerType string, ownerID int64) error {
 	for _, table := range []string{"work_tags", "work_events", "work_refs"} {
 		if _, err := t.tx.Exec(`DELETE FROM `+table+` WHERE owner_type = ? AND owner_id = ?`, ownerType, ownerID); err != nil {
 			return storeErr(err)
 		}
 	}
+	if err := t.deleteOwnerVectors(ownerType, ownerID); err != nil {
+		return err
+	}
 	return t.DeleteWorkFTS(ownerType, ownerID)
+}
+
+// deleteOwnerVectors drops the vec_chunks/chunk_meta rows for one polymorphic
+// owner (every model), keeping the semantic layer in step with deletes.
+func (t *Tx) deleteOwnerVectors(ownerType string, ownerID int64) error {
+	if _, err := t.tx.Exec(
+		`DELETE FROM vec_chunks WHERE rowid IN (
+			SELECT rowid FROM chunk_meta WHERE owner_type = ? AND owner_id = ?)`,
+		ownerType, ownerID); err != nil {
+		return storeErr(err)
+	}
+	_, err := t.tx.Exec(`DELETE FROM chunk_meta WHERE owner_type = ? AND owner_id = ?`, ownerType, ownerID)
+	return storeErr(err)
 }
 
 // AppendWorkEvent writes one append-only event. An empty newStatus or comment

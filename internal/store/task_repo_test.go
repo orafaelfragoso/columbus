@@ -19,9 +19,27 @@ func seedEpic(t *testing.T, db *DB, title string) int64 {
 	return id
 }
 
+// seedStory creates a story under epicID with a fresh id and returns it.
+func seedStory(t *testing.T, db *DB, epicID int64, title string) int64 {
+	t.Helper()
+	var id int64
+	err := db.WithTx(func(tx *Tx) error {
+		var e error
+		if id, e = tx.NextStorySeq(); e != nil {
+			return e
+		}
+		return tx.InsertStory(id, epicID, title, "", "todo", "t0", "t0")
+	})
+	if err != nil {
+		t.Fatalf("seedStory: %v", err)
+	}
+	return id
+}
+
 func TestTaskRepoRoundTrip(t *testing.T) {
 	db := openTemp(t)
 	epicID := seedEpic(t, db, "parent epic")
+	storyID := seedStory(t, db, epicID, "parent story")
 
 	var taskID int64
 	err := db.WithTx(func(tx *Tx) error {
@@ -29,7 +47,7 @@ func TestTaskRepoRoundTrip(t *testing.T) {
 		if taskID, e = tx.NextTaskSeq(); e != nil {
 			return e
 		}
-		if e = tx.InsertTask(taskID, epicID, "wire cli", "the cli task", "todo", "t0", "t0"); e != nil {
+		if e = tx.InsertTask(taskID, epicID, storyID, "wire cli", "the cli task", "todo", "t0", "t0"); e != nil {
 			return e
 		}
 		return tx.AddWorkTag("task", taskID, "cli")
@@ -46,11 +64,11 @@ func TestTaskRepoRoundTrip(t *testing.T) {
 		t.Fatalf("TaskFull = %+v", full)
 	}
 
-	list, err := db.ListTasks(epicID, "todo", "cli")
+	list, err := db.ListTasks(epicID, 0, "todo", "cli")
 	if err != nil || len(list) != 1 || list[0].ID != taskID {
 		t.Fatalf("ListTasks = %v, %v", list, err)
 	}
-	if got, _ := db.ListTasks(0, "done", ""); len(got) != 0 {
+	if got, _ := db.ListTasks(0, 0, "done", ""); len(got) != 0 {
 		t.Fatalf("ListTasks(done) = %v, want empty", got)
 	}
 
@@ -86,7 +104,7 @@ func TestInsertTaskRequiresExistingEpic(t *testing.T) {
 	db := openTemp(t)
 	// The NOT NULL FK with foreign_keys=on rejects a task whose epic is absent.
 	err := db.WithTx(func(tx *Tx) error {
-		return tx.InsertTask(1, 999, "orphan", "", "todo", "t0", "t0")
+		return tx.InsertTask(1, 999, 1, "orphan", "", "todo", "t0", "t0")
 	})
 	if err == nil {
 		t.Fatal("InsertTask with missing epic should fail the FK constraint")
@@ -97,6 +115,8 @@ func TestReparentTask(t *testing.T) {
 	db := openTemp(t)
 	epicA := seedEpic(t, db, "epic A")
 	epicB := seedEpic(t, db, "epic B")
+	storyA := seedStory(t, db, epicA, "story A")
+	storyB := seedStory(t, db, epicB, "story B")
 
 	var taskID int64
 	if err := db.WithTx(func(tx *Tx) error {
@@ -104,13 +124,13 @@ func TestReparentTask(t *testing.T) {
 		if taskID, e = tx.NextTaskSeq(); e != nil {
 			return e
 		}
-		return tx.InsertTask(taskID, epicA, "movable", "", "todo", "t0", "t0")
+		return tx.InsertTask(taskID, epicA, storyA, "movable", "", "todo", "t0", "t0")
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
 	if err := db.WithTx(func(tx *Tx) error {
-		return tx.ReparentTask(taskID, epicB, "t1")
+		return tx.ReparentTask(taskID, epicB, storyB, "t1")
 	}); err != nil {
 		t.Fatalf("ReparentTask: %v", err)
 	}
@@ -118,7 +138,7 @@ func TestReparentTask(t *testing.T) {
 	if full.EpicID != epicB {
 		t.Fatalf("after reparent epic_id = %d, want %d", full.EpicID, epicB)
 	}
-	if list, _ := db.ListTasks(epicA, "", ""); len(list) != 0 {
+	if list, _ := db.ListTasks(epicA, 0, "", ""); len(list) != 0 {
 		t.Fatalf("epic A still has tasks: %v", list)
 	}
 }
@@ -126,6 +146,7 @@ func TestReparentTask(t *testing.T) {
 func TestDeleteEpicCascadesTasksAndAssociations(t *testing.T) {
 	db := openTemp(t)
 	epicID := seedEpic(t, db, "doomed")
+	storyID := seedStory(t, db, epicID, "doomed story")
 
 	var taskID int64
 	if err := db.WithTx(func(tx *Tx) error {
@@ -133,7 +154,7 @@ func TestDeleteEpicCascadesTasksAndAssociations(t *testing.T) {
 		if taskID, e = tx.NextTaskSeq(); e != nil {
 			return e
 		}
-		if e = tx.InsertTask(taskID, epicID, "child", "", "todo", "t0", "t0"); e != nil {
+		if e = tx.InsertTask(taskID, epicID, storyID, "child", "", "todo", "t0", "t0"); e != nil {
 			return e
 		}
 		return tx.AddWorkTag("task", taskID, "doomed-tag")
@@ -159,13 +180,14 @@ func TestDeleteEpicCascadesTasksAndAssociations(t *testing.T) {
 func TestDeleteTask(t *testing.T) {
 	db := openTemp(t)
 	epicID := seedEpic(t, db, "keeper")
+	storyID := seedStory(t, db, epicID, "keeper story")
 	var taskID int64
 	if err := db.WithTx(func(tx *Tx) error {
 		var e error
 		if taskID, e = tx.NextTaskSeq(); e != nil {
 			return e
 		}
-		if e = tx.InsertTask(taskID, epicID, "removable", "", "todo", "t0", "t0"); e != nil {
+		if e = tx.InsertTask(taskID, epicID, storyID, "removable", "", "todo", "t0", "t0"); e != nil {
 			return e
 		}
 		return tx.AddWorkTag("task", taskID, "x")

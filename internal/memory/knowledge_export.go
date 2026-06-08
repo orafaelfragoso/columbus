@@ -39,8 +39,9 @@ type ExportEpic struct {
 	UpdatedAt string        `json:"updated_at,omitempty"`
 }
 
-// ExportTask is one task in the export document. Epic is the parent epic_NNN id.
-type ExportTask struct {
+// ExportStory is one story in the export document. Epic is the parent epic_NNN
+// id.
+type ExportStory struct {
 	ID        string        `json:"id"`
 	Epic      string        `json:"epic"`
 	Title     string        `json:"title"`
@@ -53,8 +54,25 @@ type ExportTask struct {
 	UpdatedAt string        `json:"updated_at,omitempty"`
 }
 
-func formatEpicID(id int64) string { return fmt.Sprintf("epic_%03d", id) }
-func formatTaskID(id int64) string { return fmt.Sprintf("task_%03d", id) }
+// ExportTask is one task in the export document. Story is the parent story_NNN
+// id; Epic is the denormalized epic of that story (kept for v2 readers).
+type ExportTask struct {
+	ID        string        `json:"id"`
+	Epic      string        `json:"epic"`
+	Story     string        `json:"story,omitempty"`
+	Title     string        `json:"title"`
+	Body      string        `json:"body,omitempty"`
+	Status    string        `json:"status"`
+	Tags      []string      `json:"tags,omitempty"`
+	Refs      []ExportRef   `json:"refs,omitempty"`
+	Events    []ExportEvent `json:"events,omitempty"`
+	CreatedAt string        `json:"created_at,omitempty"`
+	UpdatedAt string        `json:"updated_at,omitempty"`
+}
+
+func formatEpicID(id int64) string  { return fmt.Sprintf("epic_%03d", id) }
+func formatStoryID(id int64) string { return fmt.Sprintf("story_%03d", id) }
+func formatTaskID(id int64) string  { return fmt.Sprintf("task_%03d", id) }
 
 func parseWorkID(id, prefix string) (int64, error) {
 	v, err := strconv.ParseInt(strings.TrimPrefix(id, prefix), 10, 64)
@@ -92,6 +110,34 @@ func (m *Manager) exportEpics() ([]ExportEpic, error) {
 	return out, nil
 }
 
+// exportStories gathers every story with its tags, refs and event history.
+func (m *Manager) exportStories() ([]ExportStory, error) {
+	ids, err := m.DB.AllStoryIDs()
+	if err != nil {
+		return nil, err
+	}
+	var out []ExportStory
+	for _, id := range ids {
+		full, ok, err := m.DB.StoryFull(id)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		events, err := m.DB.WorkEvents("story", id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ExportStory{
+			ID: formatStoryID(id), Epic: formatEpicID(full.EpicID), Title: full.Title, Body: full.Body,
+			Status: full.Status, Tags: full.Tags, Refs: refsToExport(full.Refs), Events: eventsToExport(events),
+			CreatedAt: full.CreatedAt, UpdatedAt: full.UpdatedAt,
+		})
+	}
+	return out, nil
+}
+
 // exportTasks gathers every task with its tags, refs and event history.
 func (m *Manager) exportTasks() ([]ExportTask, error) {
 	ids, err := m.DB.AllTaskIDs()
@@ -112,7 +158,8 @@ func (m *Manager) exportTasks() ([]ExportTask, error) {
 			return nil, err
 		}
 		out = append(out, ExportTask{
-			ID: formatTaskID(id), Epic: formatEpicID(full.EpicID), Title: full.Title, Body: full.Body,
+			ID: formatTaskID(id), Epic: formatEpicID(full.EpicID), Story: formatStoryID(full.StoryID),
+			Title: full.Title, Body: full.Body,
 			Status: full.Status, Tags: full.Tags, Refs: refsToExport(full.Refs), Events: eventsToExport(events),
 			CreatedAt: full.CreatedAt, UpdatedAt: full.UpdatedAt,
 		})
@@ -151,10 +198,19 @@ func writeEpic(tx *store.Tx, id int64, rec ExportEpic, memMap map[int64]int64, r
 	return writeWorkAssociations(tx, "epic", id, rec.Title, rec.Body, rec.Tags, rec.Refs, rec.Events, memMap, reassign)
 }
 
-// writeTask restores a task row (re-parented to epicID), its associations and
+// writeStory restores a story row (re-parented to epicID), its associations and
 // FTS row.
-func writeTask(tx *store.Tx, id, epicID int64, rec ExportTask, memMap map[int64]int64, reassign bool) error {
-	if err := tx.InsertTask(id, epicID, rec.Title, rec.Body, statusOrDefault(rec.Status), rec.CreatedAt, rec.UpdatedAt); err != nil {
+func writeStory(tx *store.Tx, id, epicID int64, rec ExportStory, memMap map[int64]int64, reassign bool) error {
+	if err := tx.InsertStory(id, epicID, rec.Title, rec.Body, statusOrDefault(rec.Status), rec.CreatedAt, rec.UpdatedAt); err != nil {
+		return err
+	}
+	return writeWorkAssociations(tx, "story", id, rec.Title, rec.Body, rec.Tags, rec.Refs, rec.Events, memMap, reassign)
+}
+
+// writeTask restores a task row (re-parented to storyID under epicID), its
+// associations and FTS row.
+func writeTask(tx *store.Tx, id, epicID, storyID int64, rec ExportTask, memMap map[int64]int64, reassign bool) error {
+	if err := tx.InsertTask(id, epicID, storyID, rec.Title, rec.Body, statusOrDefault(rec.Status), rec.CreatedAt, rec.UpdatedAt); err != nil {
 		return err
 	}
 	return writeWorkAssociations(tx, "task", id, rec.Title, rec.Body, rec.Tags, rec.Refs, rec.Events, memMap, reassign)

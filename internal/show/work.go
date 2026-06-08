@@ -155,7 +155,7 @@ func (s *Shower) Epic(id string) (EpicView, error) {
 		Tags: full.Tags, Refs: s.refViews(full.Refs), Events: s.eventViews("epic", full.ID),
 		CreatedAt: full.CreatedAt, UpdatedAt: full.UpdatedAt,
 	}
-	tasks, err := s.DB.ListTasks(full.ID, "", "")
+	tasks, err := s.DB.ListTasks(full.ID, 0, "", "")
 	if err != nil {
 		return EpicView{}, err
 	}

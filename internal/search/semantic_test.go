@@ -253,6 +253,56 @@ func TestLimitDefaultFifteen(t *testing.T) {
 	}
 }
 
+// TestSemanticFindsStory: a story embedded at index time surfaces in semantic
+// search by meaning (owner_type=story).
+func TestSemanticFindsStory(t *testing.T) {
+	e := buildSemanticEngine(t, map[string]string{"svc.go": "package svc\n\nfunc New() {}\n"})
+
+	// Create an epic > story; the story body is about auth.
+	var epicID, storyID int64
+	if err := e.DB.WithTx(func(tx *store.Tx) error {
+		var err error
+		if epicID, err = tx.NextEpicSeq(); err != nil {
+			return err
+		}
+		if err = tx.InsertEpic(epicID, "Access control", "", "todo", "t", "t"); err != nil {
+			return err
+		}
+		if storyID, err = tx.NextStorySeq(); err != nil {
+			return err
+		}
+		return tx.InsertStory(storyID, epicID, "Token checks", "validate the auth token on each request", "todo", "t", "t")
+	}); err != nil {
+		t.Fatalf("seed work: %v", err)
+	}
+
+	// Re-index to embed the new story (work items embed at index time).
+	ix := &index.Indexer{
+		DB: e.DB, Registry: e.Registry, WorkDir: e.WorkDir,
+		Clock:       clock.Fixed{T: time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC)},
+		MaxFileSize: config.DefaultMaxFileSize,
+		Excludes:    config.Default().Indexing.Exclude,
+		Embedder:    topicEmbedder{},
+	}
+	if _, err := ix.Run(index.ModeIncremental); err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+
+	res, err := e.Search(Query{Text: "where do we validate auth tokens", Kind: KindAll})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	found := false
+	for _, h := range res.Hits {
+		if h.Grain == "story" && h.ID == "story_001" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("story not found via semantic search; hits=%+v", res.Hits)
+	}
+}
+
 func TestFoldFileHitsUnit(t *testing.T) {
 	cands := map[string]*codeCand{
 		candKey("symbol", "a.go", "", "Foo"): {grain: "symbol", path: "a.go", name: "Foo"},

@@ -44,26 +44,29 @@ func (m *Manager) EpicAdd(p EpicAddParams) (EpicResult, error) {
 
 // TaskAddParams are the inputs to TaskAdd.
 type TaskAddParams struct {
-	Epic  string
+	Story string
 	Title string
 	Body  string
 	Tags  []string
 }
 
-// TaskAdd creates a task under an existing epic (status todo) and auto-logs the
-// initial event. A missing epic is NOT_FOUND.
+// TaskAdd creates a task under an existing story (status todo) and auto-logs the
+// initial event. The task's epic is the story's epic. A missing story is
+// NOT_FOUND.
 func (m *Manager) TaskAdd(p TaskAddParams) (TaskResult, error) {
 	if strings.TrimSpace(p.Title) == "" {
 		return TaskResult{}, contract.Errorf(contract.CodeUsage, "task --title is required")
 	}
-	epicID, err := ParseEpicID(p.Epic)
+	storyID, err := ParseStoryID(p.Story)
 	if err != nil {
 		return TaskResult{}, err
 	}
-	if ok, err := m.DB.EpicExists(epicID); err != nil {
+	epicID, ok, err := m.DB.StoryEpicID(storyID)
+	if err != nil {
 		return TaskResult{}, err
-	} else if !ok {
-		return TaskResult{}, notFound("epic", p.Epic)
+	}
+	if !ok {
+		return TaskResult{}, notFound("story", p.Story)
 	}
 	now := m.now()
 	var id int64
@@ -72,7 +75,7 @@ func (m *Manager) TaskAdd(p TaskAddParams) (TaskResult, error) {
 		if id, e = tx.NextTaskSeq(); e != nil {
 			return e
 		}
-		if e = tx.InsertTask(id, epicID, p.Title, p.Body, StatusDefault, now, now); e != nil {
+		if e = tx.InsertTask(id, epicID, storyID, p.Title, p.Body, StatusDefault, now, now); e != nil {
 			return e
 		}
 		for _, tag := range dedupe(p.Tags) {
@@ -135,22 +138,23 @@ func (m *Manager) EpicEdit(idStr string, p EpicEditParams) (EpicResult, error) {
 	return m.loadEpic(id)
 }
 
-// TaskEditParams are partial changes; a non-nil Epic re-parents the task.
+// TaskEditParams are partial changes; a non-nil Story re-parents the task to
+// another story (and its epic).
 type TaskEditParams struct {
 	Title      *string
 	Body       *string
-	Epic       *string
+	Story      *string
 	AddTags    []string
 	RemoveTags []string
 }
 
 func (p TaskEditParams) empty() bool {
-	return p.Title == nil && p.Body == nil && p.Epic == nil &&
+	return p.Title == nil && p.Body == nil && p.Story == nil &&
 		len(p.AddTags) == 0 && len(p.RemoveTags) == 0
 }
 
 // TaskEdit applies partial non-historical changes to a task, including
-// re-parenting to another (existing) epic.
+// re-parenting to another (existing) story.
 func (m *Manager) TaskEdit(idStr string, p TaskEditParams) (TaskResult, error) {
 	id, err := ParseTaskID(idStr)
 	if err != nil {
@@ -166,17 +170,20 @@ func (m *Manager) TaskEdit(idStr string, p TaskEditParams) (TaskResult, error) {
 	if !ok {
 		return TaskResult{}, notFound("task", idStr)
 	}
-	newEpicID := cur.EpicID
-	if p.Epic != nil {
-		newEpicID, err = ParseEpicID(*p.Epic)
+	newEpicID, newStoryID := cur.EpicID, cur.StoryID
+	if p.Story != nil {
+		newStoryID, err = ParseStoryID(*p.Story)
 		if err != nil {
 			return TaskResult{}, err
 		}
-		if ok, err := m.DB.EpicExists(newEpicID); err != nil {
+		epicID, ok, err := m.DB.StoryEpicID(newStoryID)
+		if err != nil {
 			return TaskResult{}, err
-		} else if !ok {
-			return TaskResult{}, notFound("epic", *p.Epic)
 		}
+		if !ok {
+			return TaskResult{}, notFound("story", *p.Story)
+		}
+		newEpicID = epicID
 	}
 	title, body := cur.Title, cur.Body
 	if p.Title != nil {
@@ -189,8 +196,8 @@ func (m *Manager) TaskEdit(idStr string, p TaskEditParams) (TaskResult, error) {
 		if e := tx.UpdateTask(id, title, body, m.now()); e != nil {
 			return e
 		}
-		if p.Epic != nil {
-			if e := tx.ReparentTask(id, newEpicID, m.now()); e != nil {
+		if p.Story != nil {
+			if e := tx.ReparentTask(id, newEpicID, newStoryID, m.now()); e != nil {
 				return e
 			}
 		}
@@ -370,25 +377,35 @@ func (m *Manager) EpicList(status, tag string) (EpicListResult, error) {
 	return res, nil
 }
 
-// TaskList returns task summaries filtered by optional epic, status and tag.
-func (m *Manager) TaskList(epic, status, tag string) (TaskListResult, error) {
+// TaskList returns task summaries filtered by optional epic, story, status and
+// tag.
+func (m *Manager) TaskList(epic, story, status, tag string) (TaskListResult, error) {
 	if status != "" && !validStatus(status) {
 		return TaskListResult{}, invalidStatus(status)
 	}
-	var epicID int64
+	var epicID, storyID int64
 	if epic != "" {
 		var err error
 		if epicID, err = ParseEpicID(epic); err != nil {
 			return TaskListResult{}, err
 		}
 	}
-	briefs, err := m.DB.ListTasks(epicID, status, tag)
+	if story != "" {
+		var err error
+		if storyID, err = ParseStoryID(story); err != nil {
+			return TaskListResult{}, err
+		}
+	}
+	briefs, err := m.DB.ListTasks(epicID, storyID, status, tag)
 	if err != nil {
 		return TaskListResult{}, err
 	}
-	res := TaskListResult{Epic: epic, Status: status, Tag: tag, Counts: map[string]int{}}
+	res := TaskListResult{Epic: epic, Story: story, Status: status, Tag: tag, Counts: map[string]int{}}
 	for _, b := range briefs {
-		res.Tasks = append(res.Tasks, TaskRef{ID: FormatTaskID(b.ID), Epic: FormatEpicID(b.EpicID), Title: b.Title, Status: b.Status})
+		res.Tasks = append(res.Tasks, TaskRef{
+			ID: FormatTaskID(b.ID), Epic: FormatEpicID(b.EpicID), Story: FormatStoryID(b.StoryID),
+			Title: b.Title, Status: b.Status,
+		})
 		res.Counts[b.Status]++
 	}
 	res.Total = len(res.Tasks)
@@ -398,17 +415,25 @@ func (m *Manager) TaskList(epic, status, tag string) (TaskListResult, error) {
 // --- shared helpers over the polymorphic owner type ---
 
 func (m *Manager) parseOwner(ownerType, idStr string) (int64, error) {
-	if ownerType == "epic" {
+	switch ownerType {
+	case "epic":
 		return ParseEpicID(idStr)
+	case "story":
+		return ParseStoryID(idStr)
+	default:
+		return ParseTaskID(idStr)
 	}
-	return ParseTaskID(idStr)
 }
 
 func (m *Manager) ownerExists(ownerType string, id int64) (bool, error) {
-	if ownerType == "epic" {
+	switch ownerType {
+	case "epic":
 		return m.DB.EpicExists(id)
+	case "story":
+		return m.DB.StoryExists(id)
+	default:
+		return m.DB.TaskExists(id)
 	}
-	return m.DB.TaskExists(id)
 }
 
 func applyTagChanges(tx *store.Tx, ownerType string, id int64, add, remove []string) error {
@@ -434,6 +459,12 @@ func (m *Manager) reindexFTS(ownerType string, id int64) error {
 	switch ownerType {
 	case "epic":
 		full, ok, err := m.DB.EpicFull(id)
+		if err != nil || !ok {
+			return err
+		}
+		title, body, tags = full.Title, full.Body, full.Tags
+	case "story":
+		full, ok, err := m.DB.StoryFull(id)
 		if err != nil || !ok {
 			return err
 		}

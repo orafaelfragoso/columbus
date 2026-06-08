@@ -57,20 +57,21 @@ func TestEpicAddRequiresTitle(t *testing.T) {
 	assertCode(t, err, contract.CodeUsage)
 }
 
-func TestTaskAddRequiresExistingEpic(t *testing.T) {
+func TestTaskAddRequiresExistingStory(t *testing.T) {
 	m := newManager(t)
-	_, err := m.TaskAdd(TaskAddParams{Epic: "epic_999", Title: "x"})
+	_, err := m.TaskAdd(TaskAddParams{Story: "story_999", Title: "x"})
 	assertCode(t, err, contract.CodeNotFound)
 }
 
-func TestTaskAddUnderEpic(t *testing.T) {
+func TestTaskAddUnderStory(t *testing.T) {
 	m := newManager(t)
 	e, _ := m.EpicAdd(EpicAddParams{Title: "parent"})
-	r, err := m.TaskAdd(TaskAddParams{Epic: e.ID, Title: "child"})
+	s, _ := m.StoryAdd(StoryAddParams{Epic: e.ID, Title: "story"})
+	r, err := m.TaskAdd(TaskAddParams{Story: s.ID, Title: "child"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.ID != "task_001" || r.Epic != "epic_001" || r.Status != "todo" {
+	if r.ID != "task_001" || r.Story != "story_001" || r.Epic != "epic_001" || r.Status != "todo" {
 		t.Fatalf("task = %+v", r)
 	}
 }
@@ -154,30 +155,34 @@ func TestTaskReparent(t *testing.T) {
 	m := newManager(t)
 	a, _ := m.EpicAdd(EpicAddParams{Title: "A"})
 	b, _ := m.EpicAdd(EpicAddParams{Title: "B"})
-	ta, _ := m.TaskAdd(TaskAddParams{Epic: a.ID, Title: "movable"})
-	newEpic := b.ID
-	r, err := m.TaskEdit(ta.ID, TaskEditParams{Epic: &newEpic})
+	sa, _ := m.StoryAdd(StoryAddParams{Epic: a.ID, Title: "SA"})
+	sb, _ := m.StoryAdd(StoryAddParams{Epic: b.ID, Title: "SB"})
+	ta, _ := m.TaskAdd(TaskAddParams{Story: sa.ID, Title: "movable"})
+	newStory := sb.ID
+	r, err := m.TaskEdit(ta.ID, TaskEditParams{Story: &newStory})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Epic != "epic_002" {
-		t.Fatalf("reparented epic = %q", r.Epic)
+	if r.Story != "story_002" || r.Epic != "epic_002" {
+		t.Fatalf("reparented = %q / %q", r.Story, r.Epic)
 	}
 }
 
-func TestTaskReparentToMissingEpicFails(t *testing.T) {
+func TestTaskReparentToMissingStoryFails(t *testing.T) {
 	m := newManager(t)
 	a, _ := m.EpicAdd(EpicAddParams{Title: "A"})
-	ta, _ := m.TaskAdd(TaskAddParams{Epic: a.ID, Title: "x"})
-	missing := "epic_999"
-	_, err := m.TaskEdit(ta.ID, TaskEditParams{Epic: &missing})
+	s, _ := m.StoryAdd(StoryAddParams{Epic: a.ID, Title: "S"})
+	ta, _ := m.TaskAdd(TaskAddParams{Story: s.ID, Title: "x"})
+	missing := "story_999"
+	_, err := m.TaskEdit(ta.ID, TaskEditParams{Story: &missing})
 	assertCode(t, err, contract.CodeNotFound)
 }
 
 func TestEpicDeleteRequiresForceAndCascades(t *testing.T) {
 	m := newManager(t)
 	e, _ := m.EpicAdd(EpicAddParams{Title: "doomed"})
-	ta, _ := m.TaskAdd(TaskAddParams{Epic: e.ID, Title: "child"})
+	s, _ := m.StoryAdd(StoryAddParams{Epic: e.ID, Title: "story"})
+	ta, _ := m.TaskAdd(TaskAddParams{Story: s.ID, Title: "child"})
 
 	_, err := m.EpicDelete(e.ID, false)
 	assertCode(t, err, contract.CodeUsage)

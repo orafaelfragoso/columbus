@@ -32,13 +32,15 @@ func validStatus(s string) bool {
 	return false
 }
 
-// FormatEpicID / FormatTaskID render a numeric id as epic_NNN / task_NNN.
-func FormatEpicID(id int64) string { return fmt.Sprintf("epic_%03d", id) }
-func FormatTaskID(id int64) string { return fmt.Sprintf("task_%03d", id) }
+// FormatEpicID / FormatStoryID / FormatTaskID render a numeric id.
+func FormatEpicID(id int64) string  { return fmt.Sprintf("epic_%03d", id) }
+func FormatStoryID(id int64) string { return fmt.Sprintf("story_%03d", id) }
+func FormatTaskID(id int64) string  { return fmt.Sprintf("task_%03d", id) }
 
-// ParseEpicID / ParseTaskID parse an epic_NNN / task_NNN identifier.
-func ParseEpicID(id string) (int64, error) { return parseID(id, "epic_", "epic") }
-func ParseTaskID(id string) (int64, error) { return parseID(id, "task_", "task") }
+// ParseEpicID / ParseStoryID / ParseTaskID parse a typed identifier.
+func ParseEpicID(id string) (int64, error)  { return parseID(id, "epic_", "epic") }
+func ParseStoryID(id string) (int64, error) { return parseID(id, "story_", "story") }
+func ParseTaskID(id string) (int64, error)  { return parseID(id, "task_", "task") }
 
 func parseID(id, prefix, label string) (int64, error) {
 	v, err := strconv.ParseInt(strings.TrimPrefix(id, prefix), 10, 64)

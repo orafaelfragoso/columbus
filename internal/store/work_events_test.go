@@ -43,6 +43,7 @@ func TestSetStatusDenormalizesOntoRow(t *testing.T) {
 	db := openTemp(t)
 	epicID := seedEpic(t, db, "movable")
 	taskEpic := seedEpic(t, db, "with-task")
+	taskStory := seedStory(t, db, taskEpic, "with-task story")
 
 	var taskID int64
 	if err := db.WithTx(func(tx *Tx) error {
@@ -50,7 +51,7 @@ func TestSetStatusDenormalizesOntoRow(t *testing.T) {
 		if taskID, e = tx.NextTaskSeq(); e != nil {
 			return e
 		}
-		return tx.InsertTask(taskID, taskEpic, "child", "", "todo", "t0", "t0")
+		return tx.InsertTask(taskID, taskEpic, taskStory, "child", "", "todo", "t0", "t0")
 	}); err != nil {
 		t.Fatalf("seed task: %v", err)
 	}

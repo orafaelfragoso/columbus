@@ -54,7 +54,11 @@ func TestEpicTaskLifecycleE2E(t *testing.T) {
 		t.Fatalf("epic = %+v", epic)
 	}
 
-	_, errb, code = runProj(t, work, data, "task", "add", "--epic", "epic_001", "--title", "Index FTS", "--json")
+	_, errb, code = runProj(t, work, data, "story", "add", "--epic", "epic_001", "--title", "Indexing", "--json")
+	if code != 0 {
+		t.Fatalf("story add exit = %d: %s", code, errb)
+	}
+	_, errb, code = runProj(t, work, data, "task", "add", "--story", "story_001", "--title", "Index FTS", "--json")
 	if code != 0 {
 		t.Fatalf("task add exit = %d: %s", code, errb)
 	}
@@ -133,7 +137,8 @@ func TestShowEpicE2E(t *testing.T) {
 	work, data := t.TempDir(), t.TempDir()
 	initProject(t, work, data)
 	runProj(t, work, data, "epic", "add", "--title", "Ship search", "--tag", "search")
-	runProj(t, work, data, "task", "add", "--epic", "epic_001", "--title", "child")
+	runProj(t, work, data, "story", "add", "--epic", "epic_001", "--title", "story")
+	runProj(t, work, data, "task", "add", "--story", "story_001", "--title", "child")
 	runProj(t, work, data, "epic", "status", "epic_001", "--to", "in_progress", "--comment", "go")
 
 	out, _, code := runProj(t, work, data, "show", "epic", "epic_001", "--json")

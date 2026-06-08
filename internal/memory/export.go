@@ -11,10 +11,11 @@ import (
 	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
-// ExportSchemaVersion is the version of the export document format. v2 added
-// the structured-memory entities (epics and tasks) to the unified knowledge
-// document; v1 documents (memories only) still import.
-const ExportSchemaVersion = 2
+// ExportSchemaVersion is the version of the export document format. v3 inserted
+// the story tier between epics and tasks; v2 added epics/tasks; v1 (memories
+// only) still imports. v2 documents import too: their tasks are repointed to a
+// synthesized "General" story per epic.
+const ExportSchemaVersion = 3
 
 // ExportEvidence is a portable evidence anchor (keeps the creation blob oid so
 // drift detection survives a restore).
@@ -49,6 +50,7 @@ type ExportDoc struct {
 	SchemaVersion int            `json:"schema_version"`
 	Memories      []ExportRecord `json:"memories"`
 	Epics         []ExportEpic   `json:"epics,omitempty"`
+	Stories       []ExportStory  `json:"stories,omitempty"`
 	Tasks         []ExportTask   `json:"tasks,omitempty"`
 }
 
@@ -77,6 +79,9 @@ func (m *Manager) Export(kind, tag string) (ExportDoc, error) {
 	if doc.Epics, err = m.exportEpics(); err != nil {
 		return ExportDoc{}, err
 	}
+	if doc.Stories, err = m.exportStories(); err != nil {
+		return ExportDoc{}, err
+	}
 	if doc.Tasks, err = m.exportTasks(); err != nil {
 		return ExportDoc{}, err
 	}
@@ -103,7 +108,7 @@ func (m *Manager) Import(doc ExportDoc, preserveIDs bool) (ImportResult, error) 
 			Message: fmt.Sprintf("export schema v%d is newer than supported v%d", doc.SchemaVersion, ExportSchemaVersion)}
 	}
 
-	res := ImportResult{Total: len(doc.Memories) + len(doc.Epics) + len(doc.Tasks), PreserveIDs: preserveIDs}
+	res := ImportResult{Total: len(doc.Memories) + len(doc.Epics) + len(doc.Stories) + len(doc.Tasks), PreserveIDs: preserveIDs}
 
 	// The content-hash->id index is read up front (a bulk read). Preserve-ids
 	// collision checks read through the tx instead, so they are both atomic and
@@ -118,20 +123,25 @@ func (m *Manager) Import(doc ExportDoc, preserveIDs bool) (ImportResult, error) 
 		// actually written, so later entities can fix up their cross-references.
 		memMap := map[int64]int64{}
 		epicMap := map[int64]int64{}
-		maxMem, maxEpic, maxTask := int64(0), int64(0), int64(0)
+		storyMap := map[int64]int64{}
+		general := map[int64]int64{} // new epic id -> its synthesized General story
+		seqs := importSeqs{}
 
-		if err := m.importMemories(tx, doc.Memories, preserveIDs, existing, memMap, &res, &maxMem); err != nil {
+		if err := m.importMemories(tx, doc.Memories, preserveIDs, existing, memMap, &res, &seqs.mem); err != nil {
 			return err
 		}
-		if err := importEpics(tx, doc.Epics, preserveIDs, memMap, epicMap, &res, &maxEpic); err != nil {
+		if err := importEpics(tx, doc.Epics, preserveIDs, memMap, epicMap, &res, &seqs.epic); err != nil {
 			return err
 		}
-		if err := importTasks(tx, doc.Tasks, preserveIDs, memMap, epicMap, &res, &maxTask); err != nil {
+		if err := importStories(tx, doc.Stories, preserveIDs, memMap, epicMap, storyMap, &res, &seqs.story); err != nil {
+			return err
+		}
+		if err := importTasks(tx, doc.Tasks, preserveIDs, memMap, epicMap, storyMap, general, &res, &seqs.task); err != nil {
 			return err
 		}
 
 		if preserveIDs {
-			if err := advanceSeqs(tx, maxMem, maxEpic, maxTask); err != nil {
+			if err := advanceSeqs(tx, seqs); err != nil {
 				return err
 			}
 		}
@@ -220,9 +230,59 @@ func importEpics(tx *store.Tx, recs []ExportEpic, preserveIDs bool, memMap, epic
 	return nil
 }
 
-func importTasks(tx *store.Tx, recs []ExportTask, preserveIDs bool, memMap, epicMap map[int64]int64, res *ImportResult, maxTask *int64) error {
+// importStories restores stories, mapping each to its (already imported) parent
+// epic and recording old->new ids so tasks can repoint.
+func importStories(tx *store.Tx, recs []ExportStory, preserveIDs bool, memMap, epicMap, storyMap map[int64]int64, res *ImportResult, maxStory *int64) error {
 	for _, rec := range recs {
 		oldEpic, err := parseWorkID(rec.Epic, "epic_")
+		if err != nil {
+			return err
+		}
+		old, _ := parseWorkID(rec.ID, "story_")
+		epicID, err := resolveParentEpic(epicMap, oldEpic, preserveIDs, rec.ID, rec.Epic)
+		if err != nil {
+			return err
+		}
+		var id int64
+		if preserveIDs {
+			parsed, err := parseWorkID(rec.ID, "story_")
+			if err != nil {
+				return err
+			}
+			exists, err := tx.StoryExists(parsed)
+			if err != nil {
+				return err
+			}
+			if exists {
+				return collision("story", rec.ID)
+			}
+			id = parsed
+			bump(maxStory, parsed)
+		} else {
+			if id, err = tx.NextStorySeq(); err != nil {
+				return err
+			}
+		}
+		if err := writeStory(tx, id, epicID, rec, memMap, !preserveIDs); err != nil {
+			return err
+		}
+		storyMap[old] = id
+		res.Imported++
+	}
+	return nil
+}
+
+func importTasks(tx *store.Tx, recs []ExportTask, preserveIDs bool, memMap, epicMap, storyMap, general map[int64]int64, res *ImportResult, maxTask *int64) error {
+	for _, rec := range recs {
+		oldEpic, err := parseWorkID(rec.Epic, "epic_")
+		if err != nil {
+			return err
+		}
+		epicID, err := resolveParentEpic(epicMap, oldEpic, preserveIDs, rec.ID, rec.Epic)
+		if err != nil {
+			return err
+		}
+		storyID, err := resolveParentStory(tx, rec, epicID, storyMap, general, preserveIDs)
 		if err != nil {
 			return err
 		}
@@ -238,23 +298,18 @@ func importTasks(tx *store.Tx, recs []ExportTask, preserveIDs bool, memMap, epic
 			if exists {
 				return collision("task", rec.ID)
 			}
-			if err := writeTask(tx, id, oldEpic, rec, memMap, false); err != nil {
+			if err := writeTask(tx, id, epicID, storyID, rec, memMap, false); err != nil {
 				return err
 			}
 			bump(maxTask, id)
 			res.Imported++
 			continue
 		}
-		newEpic, ok := epicMap[oldEpic]
-		if !ok {
-			return &contract.Error{Code: contract.CodeConfigInvalid,
-				Message: "task " + rec.ID + " references epic " + rec.Epic + " not present in the document"}
-		}
 		id, err := tx.NextTaskSeq()
 		if err != nil {
 			return err
 		}
-		if err := writeTask(tx, id, newEpic, rec, memMap, true); err != nil {
+		if err := writeTask(tx, id, epicID, storyID, rec, memMap, true); err != nil {
 			return err
 		}
 		res.Imported++
@@ -262,19 +317,80 @@ func importTasks(tx *store.Tx, recs []ExportTask, preserveIDs bool, memMap, epic
 	return nil
 }
 
-func advanceSeqs(tx *store.Tx, maxMem, maxEpic, maxTask int64) error {
-	if maxMem > 0 {
-		if err := tx.SetMemSeqAtLeast(maxMem); err != nil {
+// resolveParentEpic returns the imported epic id for a child entity. Under
+// preserve-ids the document's id is authoritative; otherwise it must have been
+// remapped during epic import.
+func resolveParentEpic(epicMap map[int64]int64, oldEpic int64, preserveIDs bool, childID, epicRef string) (int64, error) {
+	if preserveIDs {
+		return oldEpic, nil
+	}
+	newEpic, ok := epicMap[oldEpic]
+	if !ok {
+		return 0, &contract.Error{Code: contract.CodeConfigInvalid,
+			Message: childID + " references epic " + epicRef + " not present in the document"}
+	}
+	return newEpic, nil
+}
+
+// resolveParentStory returns the imported story id for a task. v3 documents name
+// a story explicitly; v2 documents (no story) get a synthesized "General" story
+// per epic, created on first use.
+func resolveParentStory(tx *store.Tx, rec ExportTask, epicID int64, storyMap, general map[int64]int64, preserveIDs bool) (int64, error) {
+	if rec.Story != "" {
+		oldStory, err := parseWorkID(rec.Story, "story_")
+		if err != nil {
+			return 0, err
+		}
+		if preserveIDs {
+			return oldStory, nil
+		}
+		sid, ok := storyMap[oldStory]
+		if !ok {
+			return 0, &contract.Error{Code: contract.CodeConfigInvalid,
+				Message: "task " + rec.ID + " references story " + rec.Story + " not present in the document"}
+		}
+		return sid, nil
+	}
+	// v2 task: attach to (and lazily create) the epic's General story.
+	if sid, ok := general[epicID]; ok {
+		return sid, nil
+	}
+	sid, err := tx.NextStorySeq()
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.InsertStory(sid, epicID, "General", "", "todo", rec.CreatedAt, rec.UpdatedAt); err != nil {
+		return 0, err
+	}
+	if err := tx.ReindexWorkFTS("story", sid, "General", "", "", ""); err != nil {
+		return 0, err
+	}
+	general[epicID] = sid
+	return sid, nil
+}
+
+// importSeqs tracks the maximum preserved id per entity so the counters can be
+// advanced past restored ids after a --preserve-ids import.
+type importSeqs struct{ mem, epic, story, task int64 }
+
+func advanceSeqs(tx *store.Tx, s importSeqs) error {
+	if s.mem > 0 {
+		if err := tx.SetMemSeqAtLeast(s.mem); err != nil {
 			return err
 		}
 	}
-	if maxEpic > 0 {
-		if err := tx.SetEpicSeqAtLeast(maxEpic); err != nil {
+	if s.epic > 0 {
+		if err := tx.SetEpicSeqAtLeast(s.epic); err != nil {
 			return err
 		}
 	}
-	if maxTask > 0 {
-		if err := tx.SetTaskSeqAtLeast(maxTask); err != nil {
+	if s.story > 0 {
+		if err := tx.SetStorySeqAtLeast(s.story); err != nil {
+			return err
+		}
+	}
+	if s.task > 0 {
+		if err := tx.SetTaskSeqAtLeast(s.task); err != nil {
 			return err
 		}
 	}

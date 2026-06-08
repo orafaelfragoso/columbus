@@ -35,7 +35,7 @@ func (s *StoreSource) Load() (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	tasks, err := s.DB.ListTasks(0, "", "")
+	tasks, err := s.DB.ListTasks(0, 0, "", "")
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -173,7 +173,7 @@ func (s *StoreSource) Detail(kind string, id int64) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		tasks, err := s.DB.ListTasks(id, "", "")
+		tasks, err := s.DB.ListTasks(id, 0, "", "")
 		if err != nil {
 			return "", err
 		}

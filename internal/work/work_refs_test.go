@@ -116,7 +116,8 @@ func TestTaskRefAndValidate(t *testing.T) {
 	m := newManager(t)
 	seedTargets(t, m)
 	e, _ := m.EpicAdd(EpicAddParams{Title: "x"})
-	ta, _ := m.TaskAdd(TaskAddParams{Epic: e.ID, Title: "t"})
+	s, _ := m.StoryAdd(StoryAddParams{Epic: e.ID, Title: "s"})
+	ta, _ := m.TaskAdd(TaskAddParams{Story: s.ID, Title: "t"})
 
 	if _, err := m.TaskRef(ta.ID, []RefSpec{{Type: "dir", Ref: "does/not/exist"}}, nil); err != nil {
 		t.Fatal(err)

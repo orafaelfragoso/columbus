@@ -30,11 +30,15 @@ func newSeededSource(t *testing.T) *StoreSource {
 	if err != nil {
 		t.Fatalf("EpicAdd: %v", err)
 	}
-	tk, err := wm.TaskAdd(work.TaskAddParams{Epic: e.ID, Title: "parse go"})
+	st, err := wm.StoryAdd(work.StoryAddParams{Epic: e.ID, Title: "Parsers"})
+	if err != nil {
+		t.Fatalf("StoryAdd: %v", err)
+	}
+	tk, err := wm.TaskAdd(work.TaskAddParams{Story: st.ID, Title: "parse go"})
 	if err != nil {
 		t.Fatalf("TaskAdd: %v", err)
 	}
-	if _, err := wm.TaskAdd(work.TaskAddParams{Epic: e.ID, Title: "parse ts"}); err != nil {
+	if _, err := wm.TaskAdd(work.TaskAddParams{Story: st.ID, Title: "parse ts"}); err != nil {
 		t.Fatalf("TaskAdd: %v", err)
 	}
 	if _, err := wm.TaskStatus(tk.ID, "done", ""); err != nil {

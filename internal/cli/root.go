@@ -61,6 +61,7 @@ func newRootCmd(env *Env) *cobra.Command {
 	root.AddCommand(newShowCmd(env))
 	root.AddCommand(newMemoryCmd(env))
 	root.AddCommand(newEpicCmd(env))
+	root.AddCommand(newStoryCmd(env))
 	root.AddCommand(newTaskCmd(env))
 	root.AddCommand(newUICmd(env))
 	root.AddCommand(newSelftestCmd(env))

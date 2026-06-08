@@ -11,18 +11,21 @@ import (
 
 // RefSpec is a parsed reference: a target type and the bare reference text.
 type RefSpec struct {
-	Type string // file | dir | memory | symbol
+	Type string // file | dir | memory | symbol | epic | story | task
 	Ref  string
 }
 
-var refTypes = map[string]bool{"file": true, "dir": true, "memory": true, "symbol": true}
+var refTypes = map[string]bool{
+	"file": true, "dir": true, "memory": true, "symbol": true,
+	"epic": true, "story": true, "task": true,
+}
 
 // ParseRef parses a "<type>:<ref>" reference spec (used by --remove-ref).
 func ParseRef(s string) (RefSpec, error) {
 	typ, ref, ok := strings.Cut(s, ":")
 	if !ok || ref == "" || !refTypes[typ] {
 		return RefSpec{}, contract.Errorf(contract.CodeUsage,
-			"invalid ref %q (want file:<path>, dir:<path>, memory:<mem_NNN> or symbol:<name>)", s)
+			"invalid ref %q (want file:<path>, dir:<path>, memory:<mem_NNN>, symbol:<name>, epic:<epic_NNN>, story:<story_NNN> or task:<task_NNN>)", s)
 	}
 	return RefSpec{Type: typ, Ref: ref}, nil
 }
@@ -41,6 +44,24 @@ func (m *Manager) EpicRef(idStr string, add, remove []RefSpec) (EpicResult, erro
 	r, err := m.loadEpic(id)
 	if err != nil {
 		return EpicResult{}, err
+	}
+	r.Warnings = warnings
+	return r, nil
+}
+
+// StoryRef adds and/or removes references on a story.
+func (m *Manager) StoryRef(idStr string, add, remove []RefSpec) (StoryResult, error) {
+	id, err := ParseStoryID(idStr)
+	if err != nil {
+		return StoryResult{}, err
+	}
+	warnings, err := m.applyRefs("story", id, idStr, add, remove)
+	if err != nil {
+		return StoryResult{}, err
+	}
+	r, err := m.loadStory(id)
+	if err != nil {
+		return StoryResult{}, err
 	}
 	r.Warnings = warnings
 	return r, nil
@@ -116,6 +137,27 @@ func (m *Manager) refResolves(ref RefSpec) bool {
 	case "symbol":
 		rows, _ := m.DB.SymbolsByName(ref.Ref)
 		return len(rows) > 0
+	case "epic":
+		id, err := ParseEpicID(ref.Ref)
+		if err != nil {
+			return false
+		}
+		ok, _ := m.DB.EpicExists(id)
+		return ok
+	case "story":
+		id, err := ParseStoryID(ref.Ref)
+		if err != nil {
+			return false
+		}
+		ok, _ := m.DB.StoryExists(id)
+		return ok
+	case "task":
+		id, err := ParseTaskID(ref.Ref)
+		if err != nil {
+			return false
+		}
+		ok, _ := m.DB.TaskExists(id)
+		return ok
 	}
 	return false
 }
@@ -144,6 +186,27 @@ func (m *Manager) EpicValidate() (ValidateResult, error) {
 			continue
 		}
 		res.add(m.validateRefs(FormatEpicID(id), full.Title, full.Status, full.Refs))
+	}
+	res.finalize()
+	return res, nil
+}
+
+// StoryValidate scans every story's references for drift (warnings only).
+func (m *Manager) StoryValidate() (ValidateResult, error) {
+	ids, err := m.DB.AllStoryIDs()
+	if err != nil {
+		return ValidateResult{}, err
+	}
+	res := ValidateResult{command: "story"}
+	for _, id := range ids {
+		full, ok, err := m.DB.StoryFull(id)
+		if err != nil {
+			return ValidateResult{}, err
+		}
+		if !ok {
+			continue
+		}
+		res.add(m.validateRefs(FormatStoryID(id), full.Title, full.Status, full.Refs))
 	}
 	res.finalize()
 	return res, nil

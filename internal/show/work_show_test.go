@@ -10,7 +10,7 @@ import (
 func TestShowEpicDetail(t *testing.T) {
 	s := buildShower(t, map[string]string{"a.go": "package a\n\nfunc F() {}\n"})
 
-	var epicID, taskID int64
+	var epicID, storyID, taskID int64
 	err := s.DB.WithTx(func(tx *store.Tx) error {
 		var e error
 		if epicID, e = tx.NextEpicSeq(); e != nil {
@@ -34,10 +34,16 @@ func TestShowEpicDetail(t *testing.T) {
 		if e = tx.AppendWorkEvent("epic", epicID, "in_progress", "started", "t1"); e != nil {
 			return e
 		}
+		if storyID, e = tx.NextStorySeq(); e != nil {
+			return e
+		}
+		if e = tx.InsertStory(storyID, epicID, "story", "", "todo", "t0", "t0"); e != nil {
+			return e
+		}
 		if taskID, e = tx.NextTaskSeq(); e != nil {
 			return e
 		}
-		return tx.InsertTask(taskID, epicID, "child task", "", "blocked", "t0", "t0")
+		return tx.InsertTask(taskID, epicID, storyID, "child task", "", "blocked", "t0", "t0")
 	})
 	if err != nil {
 		t.Fatalf("seed: %v", err)
@@ -80,11 +86,18 @@ func TestShowTaskDetail(t *testing.T) {
 		if e = tx.InsertEpic(eid, "parent", "", "todo", "t0", "t0"); e != nil {
 			return e
 		}
+		sid, e := tx.NextStorySeq()
+		if e != nil {
+			return e
+		}
+		if e = tx.InsertStory(sid, eid, "story", "", "todo", "t0", "t0"); e != nil {
+			return e
+		}
 		tid, e := tx.NextTaskSeq()
 		if e != nil {
 			return e
 		}
-		if e = tx.InsertTask(tid, eid, "do the thing", "", "todo", "t0", "t0"); e != nil {
+		if e = tx.InsertTask(tid, eid, sid, "do the thing", "", "todo", "t0", "t0"); e != nil {
 			return e
 		}
 		return tx.AppendWorkEvent("task", tid, "todo", "", "t0")

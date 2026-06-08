@@ -30,10 +30,17 @@ func seedEpicWithTask(t *testing.T, m *Manager, memRef string) (epicID, taskID i
 		if e = tx.AppendWorkEvent("epic", epicID, "in_progress", "kicked off", "t1"); e != nil {
 			return e
 		}
+		var storyID int64
+		if storyID, e = tx.NextStorySeq(); e != nil {
+			return e
+		}
+		if e = tx.InsertStory(storyID, epicID, "General", "", "todo", "t0", "t0"); e != nil {
+			return e
+		}
 		if taskID, e = tx.NextTaskSeq(); e != nil {
 			return e
 		}
-		if e = tx.InsertTask(taskID, epicID, "child task", "", "todo", "t0", "t0"); e != nil {
+		if e = tx.InsertTask(taskID, epicID, storyID, "child task", "", "todo", "t0", "t0"); e != nil {
 			return e
 		}
 		return tx.AppendWorkEvent("task", taskID, "todo", "", "t0")

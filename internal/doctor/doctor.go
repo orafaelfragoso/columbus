@@ -83,6 +83,12 @@ type Params struct {
 	Getenv  func(string) string
 	Version string
 	Ctx     context.Context
+
+	// Embed is an optional probe that loads the embedding runtime (a dry run of
+	// embed.New) and reports the model name and dimension. It is injected by the
+	// cli layer so the doctor package stays free of the onnxruntime dependency.
+	// A nil probe skips the runtime check.
+	Embed func() (model string, dim int, err error)
 }
 
 func ctxOrBackground(ctx context.Context) context.Context {
@@ -114,14 +120,17 @@ func Run(p Params) (Result, contract.Code) {
 		add(dbCheck)
 		if db != nil {
 			defer db.Close()
+			add(checkVec0(db))
 			add(checkIndex(p, db))
 			add(checkEmbedding(cfg, db))
 		}
 	} else {
 		add(Check{Name: "database", Status: StatusSkip, Detail: "no project"})
+		add(Check{Name: "vec0", Status: StatusSkip, Detail: "no project"})
 		add(Check{Name: "index", Status: StatusSkip, Detail: "no project"})
 		add(Check{Name: "embedding", Status: StatusSkip, Detail: "no project"})
 	}
+	add(checkRuntime(p, cfg))
 
 	code := worstCode(checks, cfgCode)
 	return Result{Healthy: code == "", Checks: checks}, code
@@ -150,6 +159,40 @@ func checkGrammars() Check {
 		return Check{Name: "grammars", Status: StatusFail, Detail: err.Error()}
 	}
 	return Check{Name: "grammars", Status: StatusOK, Detail: fmt.Sprintf("%d languages loaded", len(reg.Languages()))}
+}
+
+// checkVec0 confirms the statically linked sqlite-vec (vec0) extension loads.
+func checkVec0(db *store.DB) Check {
+	v, err := db.VecVersion()
+	if err != nil {
+		return Check{Name: "vec0", Status: StatusFail, Detail: "sqlite-vec not loadable: " + err.Error()}
+	}
+	return Check{Name: "vec0", Status: StatusOK, Detail: "sqlite-vec " + v}
+}
+
+// expectedEmbedDim is the bge-small-en-v1.5 output dimension. A probe returning
+// anything else means a model/runtime mismatch.
+const expectedEmbedDim = 384
+
+// checkRuntime dry-runs the embedding runtime (onnxruntime + model assets) via
+// the injected probe. A missing runtime is a warning (search degrades to
+// keyword); any other failure, or a wrong dimension, is a hard failure.
+func checkRuntime(p Params, _ config.Config) Check {
+	if p.Embed == nil {
+		return Check{Name: "runtime", Status: StatusSkip, Detail: "not probed"}
+	}
+	model, dim, err := p.Embed()
+	if err != nil {
+		ce := contract.AsError(err)
+		if ce.Code == contract.CodeRuntimeMissing {
+			return Check{Name: "runtime", Status: StatusWarn, Detail: "onnxruntime not loadable (keyword fallback)", Hint: ce.Hint}
+		}
+		return Check{Name: "runtime", Status: StatusFail, Detail: ce.Message, Hint: ce.Hint}
+	}
+	if dim != expectedEmbedDim {
+		return Check{Name: "runtime", Status: StatusFail, Detail: fmt.Sprintf("model %q dim %d, want %d", model, dim, expectedEmbedDim)}
+	}
+	return Check{Name: "runtime", Status: StatusOK, Detail: fmt.Sprintf("%s (%d-d)", model, dim)}
 }
 
 func checkConfig(p Params) (Check, config.Config, contract.Code) {

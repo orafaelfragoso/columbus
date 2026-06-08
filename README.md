@@ -68,31 +68,49 @@ bleed tokens and go wrong. Columbus takes that off its plate.
 Requires Go 1.26+ and a C compiler (cgo). Columbus is always built with
 `-tags fts5` and `CGO_ENABLED=1`.
 
-### `go install`
+### Release archives (full semantic build)
+
+Download the archive for your platform from
+[Releases](https://github.com/orafaelfragoso/columbus/releases). Each archive
+ships the `columbus` binary **plus the matching onnxruntime shared library**
+beside it, so local natural-language (vector) search works out of the box with
+no network at runtime. The loader finds the lib next to the binary; override
+with `COLUMBUS_ORT_LIB`.
+
+### `go install` (keyword-fallback build)
 
 ```sh
 CGO_ENABLED=1 go install -tags fts5 github.com/orafaelfragoso/columbus/cmd/columbus@latest
 ```
 
-Installs `columbus` into `$(go env GOPATH)/bin` — make sure that's on your `PATH`.
+Installs `columbus` into `$(go env GOPATH)/bin`. This build has **no embedding
+runtime bundled**: search degrades to deterministic keyword (FTS) ranking until
+an onnxruntime shared library is available (`COLUMBUS_ORT_LIB` or next to the
+binary). Run `columbus doctor` to see the runtime status.
 
-### Build from source
+### Build from source (full semantic)
 
 ```sh
 brew install zig goreleaser ripgrep ast-grep
+make setup        # fetch model weights + libtokenizers.a + onnxruntime into ~/.columbus/libs
 make install      # -> dist/columbus  (always built with -tags fts5, CGO_ENABLED=1)
+export COLUMBUS_ORT_LIB="$HOME/.columbus/libs/libonnxruntime.dylib"  # .so on linux
 ```
 
 `git` is the only hard runtime dependency. `ripgrep` is the recommended search
-fast-path (a pure-Go fallback covers the rest); `ast-grep` is optional.
+fast-path (a pure-Go fallback covers the rest); `ast-grep` is optional. The
+embedding engine needs two native libs (see `make setup` / the
+[`Makefile`](Makefile)): `libtokenizers.a` linked at build time and an
+onnxruntime shared lib loaded at runtime.
 
 ## Quick start
 
 ```sh
-columbus init                    # mint project_id, write .columbus.json (git-excluded)
-columbus index                   # chart the codebase (incremental)
+columbus install                 # onboard: write .columbus.json, create db, first index + embed
 columbus search "parse config"   # ranked, LLM-ready context with exact line ranges
-columbus ui                      # full-screen dashboard (index, memory, epics, tasks, graph)
+columbus reindex                 # re-chunk + re-embed only what changed
+columbus view                    # full-screen dashboard (index, memory, epics, tasks, graph)
+columbus doctor                  # verify git, vec0, onnxruntime runtime, model + index health
 ```
 
 Then point your agent at Columbus as a tool (see

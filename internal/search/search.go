@@ -165,7 +165,7 @@ func (e *Engine) Search(q Query) (SearchResult, error) {
 		return SearchResult{}, err
 	}
 	if meta.LastIndexedAt == "" {
-		return SearchResult{}, &contract.Error{Code: contract.CodeIndexMissing, Message: "no index found", Hint: "run columbus index"}
+		return SearchResult{}, &contract.Error{Code: contract.CodeIndexMissing, Message: "no index found", Hint: "run columbus install"}
 	}
 
 	tokens := tokenize(q.Text)

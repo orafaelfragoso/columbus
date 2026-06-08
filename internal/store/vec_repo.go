@@ -9,6 +9,16 @@ import (
 	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 )
 
+// VecVersion returns the statically linked sqlite-vec (vec0) extension version,
+// confirming the vector layer is loadable. Used by `columbus doctor`.
+func (d *DB) VecVersion() (string, error) {
+	var v string
+	if err := d.db.QueryRow(`SELECT vec_version()`).Scan(&v); err != nil {
+		return "", storeErr(err)
+	}
+	return v, nil
+}
+
 // VecHit is one nearest-neighbor result from a vector search.
 type VecHit struct {
 	OwnerType string

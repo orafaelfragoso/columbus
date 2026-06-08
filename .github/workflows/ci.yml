@@ -8,19 +8,29 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    env:
+      CGO_LDFLAGS: -L${{ github.workspace }}/.native
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
+      # Embedding engine native deps: model weights (//go:embed) + libtokenizers.a
+      # (linked at build time). Without these the cgo packages don't compile.
+      - name: Fetch native deps
+        run: |
+          make fetch-model
+          make fetch-tokenizers LIBS_DIR="${{ github.workspace }}/.native"
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: latest
-          args: --timeout=5m ./...
+          args: --timeout=5m --build-tags fts5 ./...
 
   test:
     runs-on: ubuntu-latest
+    env:
+      CGO_LDFLAGS: -L${{ github.workspace }}/.native
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -28,18 +38,50 @@ jobs:
           go-version: "1.26"
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Fetch native deps
+        run: |
+          make fetch-model
+          make fetch-tokenizers LIBS_DIR="${{ github.workspace }}/.native"
       - name: Vet
         run: go vet -tags fts5 ./...
       - name: Test (race)
         run: go test -tags fts5 -race -timeout 300s ./...
 
-  govulncheck:
+  smoke:
+    # End-to-end guard for the native chain: build the full semantic binary,
+    # onboard a fixture repo and confirm search returns a vector-backed hit.
     runs-on: ubuntu-latest
+    env:
+      CGO_LDFLAGS: -L${{ github.workspace }}/.native
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
+      - name: Fetch native deps (model + tokenizers + onnxruntime)
+        run: |
+          make fetch-model
+          bash scripts/fetch-native.sh linux amd64 "${{ github.workspace }}/.native"
+      - name: Build
+        run: go build -tags fts5 -o columbus ./cmd/columbus
+      - name: Smoke test
+        env:
+          COLUMBUS_ORT_LIB: ${{ github.workspace }}/.native/libonnxruntime.so
+        run: bash scripts/smoke.sh "${{ github.workspace }}/columbus"
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    env:
+      CGO_LDFLAGS: -L${{ github.workspace }}/.native
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+      - name: Fetch native deps
+        run: |
+          make fetch-model
+          make fetch-tokenizers LIBS_DIR="${{ github.workspace }}/.native"
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: Run govulncheck

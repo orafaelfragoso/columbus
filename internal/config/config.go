@@ -116,7 +116,7 @@ func Load(path string) (LoadResult, error) {
 			return LoadResult{}, &contract.Error{
 				Code:    contract.CodeNotInitialized,
 				Message: "no .columbus.json found",
-				Hint:    "run columbus init",
+				Hint:    "run columbus install",
 			}
 		}
 		return LoadResult{}, &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}

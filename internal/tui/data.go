@@ -1,4 +1,4 @@
-// Package tui implements `columbus ui`: a local, full-screen dashboard over the
+// Package tui implements `columbus view`: a local, full-screen dashboard over the
 // project's indexed state, memory, and structured work (epics & tasks). It is a
 // read-mostly projection — the same data the JSON/LLM commands expose, rendered
 // for humans. All state is derived from a Snapshot loaded through a Source port,

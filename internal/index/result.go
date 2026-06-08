@@ -57,7 +57,7 @@ func (r IndexResult) RenderText(w io.Writer, _ render.Options) error {
 }
 
 func (r IndexResult) RenderLLM(w io.Writer, _ render.Options) error {
-	fmt.Fprintf(w, "# columbus index (%s)\n\n", r.Mode)
+	fmt.Fprintf(w, "# columbus reindex (%s)\n\n", r.Mode)
 	fmt.Fprintf(w, "- indexed: %d\n- unchanged: %d\n- deleted: %d\n- symbols: %d\n- total_files: %d\n- dirty: %t\n",
 		r.Indexed, r.Unchanged, r.Deleted, r.Symbols, r.TotalFiles, r.Dirty)
 	return nil

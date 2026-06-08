@@ -4,6 +4,11 @@ TAGS := fts5
 CGO_ENABLED := 1
 export CGO_ENABLED
 
+# Point the linker at the local native libs (libtokenizers.a). Override to use a
+# system location. Exported so plain `go build`/`go test` invocations link too.
+CGO_LDFLAGS ?= -L$(HOME)/.columbus/libs
+export CGO_LDFLAGS
+
 # Where `make install` drops the binary. Override with `make install PREFIX=/usr/local/bin`.
 PREFIX ?= $(HOME)/.local/bin
 
@@ -33,7 +38,44 @@ MODEL_DIR  := internal/embed/assets
 MODEL_FILE := $(MODEL_DIR)/model.onnx
 MODEL_URL  := https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx
 
-.PHONY: build install uninstall test test-short vet fmt lint cover clean release-check release-test fetch-model
+# Where the native libs land for local dev. libtokenizers.a is linked at build
+# time (CGO_LDFLAGS=-L$(LIBS_DIR)); the onnxruntime shared lib is loaded at run
+# time (COLUMBUS_ORT_LIB=$(LIBS_DIR)/<lib>). `make setup` populates both.
+LIBS_DIR        ?= $(HOME)/.columbus/libs
+# ORT 1.26.0 is the first release exposing the API version the Go binding needs.
+ORT_VERSION     ?= 1.26.0
+TOKENIZERS_TAG  ?= v1.27.0
+
+# Host os/arch -> go slugs and upstream asset names. Override on cross targets.
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+ifeq ($(UNAME_S),Darwin)
+  GO_OS    := darwin
+  ORT_LINK := libonnxruntime.dylib
+  ORT_LIB  := libonnxruntime.$(ORT_VERSION).dylib
+  ifeq ($(UNAME_M),arm64)
+    GO_ARCH := arm64
+    TOK_SLUG := darwin-aarch64
+  else
+    GO_ARCH := amd64
+    TOK_SLUG := darwin-x86_64
+  endif
+else
+  GO_OS    := linux
+  ORT_LINK := libonnxruntime.so
+  ORT_LIB  := libonnxruntime.so.$(ORT_VERSION)
+  ifeq ($(UNAME_M),aarch64)
+    GO_ARCH := arm64
+    TOK_SLUG := linux-aarch64
+  else
+    GO_ARCH := amd64
+    TOK_SLUG := linux-x86_64
+  endif
+endif
+
+TOK_URL := https://github.com/daulet/tokenizers/releases/download/$(TOKENIZERS_TAG)/libtokenizers.$(TOK_SLUG).tar.gz
+
+.PHONY: build install uninstall test test-short vet fmt lint cover clean release-check release-test fetch-model fetch-ort fetch-tokenizers setup
 
 # fetch-model downloads the bge-small-en-v1.5 ONNX weights into assets/. The
 # weights are git-ignored (too large to commit); tokenizer.json sits beside
@@ -43,6 +85,28 @@ fetch-model:
 	@echo "fetching model.onnx -> $(MODEL_FILE)"
 	@curl -fSL --retry 3 '$(MODEL_URL)' -o '$(MODEL_FILE)'
 	@echo "done ($$(du -h '$(MODEL_FILE)' | cut -f1))"
+
+# fetch-tokenizers downloads the prebuilt libtokenizers.a for the host into
+# $(LIBS_DIR). It is linked statically at build time via CGO_LDFLAGS.
+fetch-tokenizers:
+	@mkdir -p '$(LIBS_DIR)'
+	@echo "fetching libtokenizers ($(TOK_SLUG) $(TOKENIZERS_TAG)) -> $(LIBS_DIR)"
+	@curl -fSL --retry 3 '$(TOK_URL)' | tar -xz -C '$(LIBS_DIR)' libtokenizers.a
+	@echo "done -> $(LIBS_DIR)/libtokenizers.a"
+
+# fetch-ort downloads the onnxruntime shared lib for the host into $(LIBS_DIR)
+# and symlinks the unversioned name the loader resolves. It is dlopen'd at run
+# time (set COLUMBUS_ORT_LIB or drop it next to the binary).
+fetch-ort:
+	@echo "fetching onnxruntime ($(ORT_SLUG) $(ORT_VERSION)) -> $(LIBS_DIR)"
+	@bash scripts/fetch-native.sh $(GO_OS) $(GO_ARCH) '$(LIBS_DIR)' >/dev/null
+	@echo "done -> $(LIBS_DIR)/$(ORT_LINK)"
+	@echo "export COLUMBUS_ORT_LIB=$(LIBS_DIR)/$(ORT_LINK)"
+
+# setup fetches everything the embedding engine needs for a local semantic build
+# (fetch-ort stages both libtokenizers.a and the onnxruntime shared lib).
+setup: fetch-model fetch-ort
+	@echo "ready: build with CGO_LDFLAGS=-L$(LIBS_DIR), run with COLUMBUS_ORT_LIB=$(LIBS_DIR)/$(ORT_LINK)"
 
 # build fails loudly with a fetch hint when the embedded model is missing,
 # rather than emitting an opaque //go:embed error.

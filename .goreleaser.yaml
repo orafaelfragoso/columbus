@@ -5,14 +5,23 @@ project_name: columbus
 before:
   hooks:
     - go mod tidy
+    # The model weights are embedded via //go:embed; fetch them before any build
+    # so the embed package compiles (the build fails loudly if absent).
+    - make fetch-model
 
 builds:
   - id: columbus
     main: ./cmd/columbus
     binary: columbus
     builder: go
+    # Per target: stage libtokenizers.a (linked statically here) and the
+    # onnxruntime shared lib (shipped in the archive, dlopen'd at runtime).
+    hooks:
+      pre:
+        - bash scripts/fetch-native.sh {{ .Os }} {{ .Arch }} dist/native/{{ .Os }}_{{ .Arch }}
     env:
       - CGO_ENABLED=1
+      - "CGO_LDFLAGS=-Ldist/native/{{ .Os }}_{{ .Arch }}"
     flags:
       - -tags=fts5
     ldflags:
@@ -53,6 +62,14 @@ archives:
       - tar.gz
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    # Ship the matching onnxruntime shared lib beside the binary (the loader
+    # finds it next to the executable) plus license/attribution. Vectors are not
+    # shipped — `columbus reindex` rebuilds them locally.
+    files:
+      - LICENSE
+      - THIRD_PARTY.md
+      - src: dist/native/{{ .Os }}_{{ .Arch }}/libonnxruntime*
+        strip_parent: true
 
 checksum:
   name_template: "checksums.txt"

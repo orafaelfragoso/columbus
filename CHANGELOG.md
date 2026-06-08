@@ -9,6 +9,28 @@ and released changes are grouped by GoReleaser from commit history.
 
 No unreleased changes yet.
 
+## [0.2.1] - 2026-06-08
+
+The dashboard polish release. Columbus now has a two-tab TUI with a metrics-led
+main view, a dedicated kanban work view, semantic-search result drilldown, and
+safer quit handling.
+
+### Features
+
+- **tui:** split the dashboard into Main and Work tabs with highlighted header tabs
+- **tui:** add embeddings, memories, epics, stories, and tasks metric cards
+- **tui:** replace the old work summary cards with a full-height memory table
+- **tui:** add a kanban view for epics, stories, and tasks
+- **search:** show ranked semantic-search results with snippets in result detail
+- **tui:** add a quit confirmation modal for `q`
+
+### Fixes
+
+- **tui:** make selected memory rows and kanban cards use the active panel border color
+- **tui:** move kanban selection up and down within the active column
+- **tui:** move kanban selection left and right between status columns
+- **tui:** show only kanban card titles and wrap long titles instead of truncating them
+
 ## [0.2.0] - 2026-06-08
 
 The semantic-search release. Columbus now retrieves with **on-device embeddings**
@@ -42,5 +64,6 @@ reshaped around the new lifecycle.
 
 - update README for semantic search and the redesigned CLI
 
+[0.2.1]: https://github.com/orafaelfragoso/columbus/releases/tag/v0.2.1
 [0.2.0]: https://github.com/orafaelfragoso/columbus/releases/tag/v0.2.0
 [0.1.0]: https://github.com/orafaelfragoso/columbus/releases/tag/v0.1.0

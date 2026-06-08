@@ -8,7 +8,7 @@ import (
 )
 
 // fakeEmbedder is a deterministic, runtime-free stand-in for embed.Embedder:
-// it derives a normalized 384-d vector from each text and records call counts
+// it derives a normalized 256-d vector from each text and records call counts
 // and the texts it saw, so tests can assert embed/skip behavior precisely.
 type fakeEmbedder struct {
 	calls int
@@ -16,7 +16,7 @@ type fakeEmbedder struct {
 }
 
 func (f *fakeEmbedder) Model() string { return "fake-v1" }
-func (f *fakeEmbedder) Dim() int      { return 384 }
+func (f *fakeEmbedder) Dim() int      { return 256 }
 
 func (f *fakeEmbedder) Embed(texts []string) ([][]float32, error) {
 	f.calls++
@@ -29,7 +29,7 @@ func (f *fakeEmbedder) Embed(texts []string) ([][]float32, error) {
 }
 
 func fakeVec(s string) []float32 {
-	v := make([]float32, 384)
+	v := make([]float32, 256)
 	sum := sha256.Sum256([]byte(s))
 	var norm float64
 	for i := range v {
@@ -76,8 +76,8 @@ func TestEmbedPopulatesSymbolAndFileVectors(t *testing.T) {
 	}
 	// index_meta records the model + dim.
 	m, _ := ix.DB.Meta().Get()
-	if m.EmbedModel != "fake-v1" || m.EmbedDim != 384 {
-		t.Errorf("embed meta = %q/%d, want fake-v1/384", m.EmbedModel, m.EmbedDim)
+	if m.EmbedModel != "fake-v1" || m.EmbedDim != 256 {
+		t.Errorf("embed meta = %q/%d, want fake-v1/256", m.EmbedModel, m.EmbedDim)
 	}
 }
 

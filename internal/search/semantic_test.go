@@ -20,7 +20,7 @@ import (
 
 // topicEmbedder is a deterministic, runtime-free embedder used at BOTH index
 // time (Embed) and query time (EmbedQuery) so semantic matches are reproducible
-// without the ONNX model. Texts mentioning a known topic collapse onto a shared
+// without the real model. Texts mentioning a known topic collapse onto a shared
 // one-hot basis vector; a NL query mentioning the same topic therefore matches
 // the symbol whose BODY mentions it, even with zero name/token overlap.
 type topicEmbedder struct{}
@@ -28,7 +28,7 @@ type topicEmbedder struct{}
 var topics = []string{"auth", "render", "database", "parse"}
 
 func (topicEmbedder) Model() string { return "topic-v1" }
-func (topicEmbedder) Dim() int      { return 384 }
+func (topicEmbedder) Dim() int      { return 256 }
 
 func (topicEmbedder) Embed(texts []string) ([][]float32, error) {
 	out := make([][]float32, len(texts))
@@ -43,7 +43,7 @@ func (topicEmbedder) EmbedQuery(text string) ([]float32, error) {
 }
 
 func topicVec(s string) []float32 {
-	v := make([]float32, 384)
+	v := make([]float32, 256)
 	low := strings.ToLower(s)
 	matched := false
 	for i, t := range topics {
@@ -55,7 +55,7 @@ func topicVec(s string) []float32 {
 	if !matched {
 		// Unrelated text lands far from every topic basis vector.
 		h := sha256.Sum256([]byte(s))
-		v[4+int(h[0])%(384-4)] = 1
+		v[4+int(h[0])%(256-4)] = 1
 	}
 	var norm float64
 	for _, x := range v {

@@ -46,8 +46,8 @@ const (
 	CodeNotFound          Code = "NOT_FOUND"
 	CodeStoreError        Code = "STORE_ERROR"
 	CodeDependencyMissing Code = "DEPENDENCY_MISSING"
-	// CodeRuntimeMissing means a required native runtime (onnxruntime /
-	// tokenizers) could not be loaded.
+	// CodeRuntimeMissing means a required runtime could not be loaded. Kept for
+	// compatibility with older clients and error envelopes.
 	CodeRuntimeMissing Code = "RUNTIME_MISSING"
 	// CodeEmbedFailure means an embedding session run or text encode failed.
 	CodeEmbedFailure Code = "EMBED_FAILURE"

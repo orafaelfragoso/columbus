@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# smoke.sh — end-to-end guard for the native semantic chain. Onboards a tiny
+# smoke.sh — end-to-end guard for the semantic chain. Onboards a tiny
 # fixture repo with the given columbus binary and asserts that a natural-language
 # query (no token overlap with the code) returns a vector-backed hit.
 #
@@ -43,8 +43,8 @@ out="$("$bin" search "how are credentials verified" --kind code --json)"
 echo "$out"
 
 # A vector-backed result is tagged "semantic match" in the why field. Its
-# presence proves onnxruntime loaded, the model embedded the query, and vec0
-# returned a nearest neighbor.
+# presence proves the embedded model encoded the query and vec0 returned a
+# nearest neighbor.
 if echo "$out" | grep -q "semantic match"; then
   echo "PASS: semantic (vector) hit present"
 else

@@ -31,10 +31,8 @@ func newDoctorCmd(env *Env) *cobra.Command {
 	}
 }
 
-// embedProbe returns a doctor runtime probe: it loads the embedding runtime
-// (onnxruntime + embedded model) and reports the model name and dimension,
-// closing the engine immediately. It keeps the doctor package free of the
-// onnxruntime dependency.
+// embedProbe returns a doctor runtime probe: it loads the embedded model and
+// reports the model name and dimension, closing the engine immediately.
 func embedProbe(env *Env) func() (string, int, error) {
 	return func() (string, int, error) {
 		e, err := embed.New(env.ctx())

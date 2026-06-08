@@ -5,11 +5,9 @@ import (
 	"encoding/binary"
 	"math"
 	"strings"
-
-	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 )
 
-// VecVersion returns the statically linked sqlite-vec (vec0) extension version,
+// VecVersion returns the registered sqlite-vec (vec0) extension version,
 // confirming the vector layer is loadable. Used by `columbus doctor`.
 func (d *DB) VecVersion() (string, error) {
 	var v string
@@ -31,10 +29,7 @@ type VecHit struct {
 // lockstep, keyed by a shared rowid. Re-embedding the same owner under the same
 // model overwrites in place. Must run under the writer lock.
 func (d *DB) UpsertVector(ownerType string, ownerID int64, model, sha string, vec []float32) error {
-	blob, err := sqlitevec.SerializeFloat32(vec)
-	if err != nil {
-		return storeErr(err)
-	}
+	blob := serializeFloat32(vec)
 	return d.WithTx(func(tx *Tx) error {
 		// Reuse the existing rowid when this owner+model already has a vector so
 		// the vec_chunks blob and chunk_meta row stay aligned.
@@ -78,10 +73,7 @@ func (d *DB) UpsertVector(ownerType string, ownerID int64, model, sha string, ve
 // SearchVectors returns the nearest owners to qvec, restricted to ownerTypes
 // (empty = all types), best (smallest cosine distance) first, capped at k.
 func (d *DB) SearchVectors(qvec []float32, ownerTypes []string, k int) ([]VecHit, error) {
-	blob, err := sqlitevec.SerializeFloat32(qvec)
-	if err != nil {
-		return nil, storeErr(err)
-	}
+	blob := serializeFloat32(qvec)
 
 	// A KNN MATCH must be evaluated on vec_chunks first, then joined to
 	// chunk_meta for the polymorphic key and the owner_type filter.
@@ -235,7 +227,7 @@ func placeholders(n int) string {
 	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
 }
 
-// deserializeFloat32 decodes a sqlite-vec float32 blob (little-endian, 4 bytes
+// deserializeFloat32 decodes a vec0 float32 blob (little-endian, 4 bytes
 // per component) back into a slice.
 func deserializeFloat32(blob []byte) []float32 {
 	v := make([]float32, len(blob)/4)
@@ -243,4 +235,12 @@ func deserializeFloat32(blob []byte) []float32 {
 		v[i] = math.Float32frombits(binary.LittleEndian.Uint32(blob[i*4:]))
 	}
 	return v
+}
+
+func serializeFloat32(v []float32) []byte {
+	blob := make([]byte, len(v)*4)
+	for i, f := range v {
+		binary.LittleEndian.PutUint32(blob[i*4:], math.Float32bits(f))
+	}
+	return blob
 }

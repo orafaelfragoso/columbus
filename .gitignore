@@ -3,7 +3,7 @@
 /columbus
 *.test
 
-# Zig cross-compile cache (created by zig cc during cgo release builds)
+# Zig cross-compile cache (may exist from older local builds)
 .zig-cache/
 
 # Local data / coverage
@@ -16,9 +16,9 @@ coverage.html
 # Columbus local config (also git-excluded by `init`, belt-and-suspenders here)
 .columbus.json
 
-# Embedding model weights: fetched via `make fetch-model`, never committed raw
-# (too large). tokenizer.json next to it is small and committed.
+# Embedding model weights: fetched via `make fetch-model`, never committed raw.
 /internal/embed/assets/model.onnx
+/internal/embed/assets/model.safetensors
 
 # OS noise
 .DS_Store

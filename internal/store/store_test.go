@@ -53,6 +53,23 @@ func TestForeignKeysEnabled(t *testing.T) {
 	}
 }
 
+func TestModernSQLiteDriverProvidesVec0(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "raw.sqlite")
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open raw sqlite driver: %v", err)
+	}
+	defer raw.Close()
+
+	var version string
+	if err := raw.QueryRow(`SELECT vec_version()`).Scan(&version); err != nil {
+		t.Fatalf("vec0 should be available on sqlite driver connections: %v", err)
+	}
+	if version == "" {
+		t.Fatal("vec_version() returned empty version")
+	}
+}
+
 func TestReopenIsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "columbus.sqlite")
 	db1, err := Open(path)
@@ -79,8 +96,8 @@ func TestReopenIsIdempotent(t *testing.T) {
 // layer), then opens it and verifies 0003 applies cleanly on top.
 func TestMigrate0003OnExisting0002DB(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "columbus.sqlite")
-	dsn := "file:" + path + "?_foreign_keys=on"
-	raw, err := sql.Open("sqlite3", dsn)
+	dsn := "file:" + path + "?_pragma=foreign_keys(1)"
+	raw, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open raw: %v", err)
 	}
@@ -111,8 +128,74 @@ func TestMigrate0003OnExisting0002DB(t *testing.T) {
 		t.Errorf("user_version = %d, want %d", uv, LatestVersion)
 	}
 	// vec0 table and the new index_meta columns must now exist and be usable.
-	if err := db.UpsertVector("file", 1, "m", "sha", vec384(1, 0, 0)); err != nil {
+	if err := db.UpsertVector("file", 1, "m", "sha", vec256(1, 0, 0)); err != nil {
 		t.Fatalf("upsert after upgrade: %v", err)
+	}
+}
+
+// TestMigrate0005RebuildsVectorLayerForPotion builds a DB with the legacy
+// 384-d embedding table, then opens it and verifies the migration clears stale
+// BGE vectors and recreates vec0 for the 256-d potion-code model.
+func TestMigrate0005RebuildsVectorLayerForPotion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "columbus.sqlite")
+	raw, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	migs, err := loadMigrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	for _, m := range migs {
+		if m.version <= 4 {
+			if err := applyMigration(raw, m); err != nil {
+				t.Fatalf("apply %s: %v", m.name, err)
+			}
+		}
+	}
+	raw.Close()
+
+	raw, err = sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("reopen legacy raw: %v", err)
+	}
+	if _, err := raw.Exec(`INSERT INTO chunk_meta (rowid, owner_type, owner_id, model, content_sha)
+		VALUES (1, 'file', 1, 'bge-small-en-v1.5', 'old-sha')`); err != nil {
+		t.Fatalf("seed legacy chunk_meta: %v", err)
+	}
+	if _, err := raw.Exec(`INSERT INTO vec_chunks (rowid, embedding) VALUES (1, ?)`, serializeFloat32(vec384(1, 0, 0))); err != nil {
+		t.Fatalf("seed legacy vec_chunks: %v", err)
+	}
+	if _, err := raw.Exec(`UPDATE index_meta SET embed_model = 'bge-small-en-v1.5', embed_dim = 384 WHERE id = 1`); err != nil {
+		t.Fatalf("seed legacy embed info: %v", err)
+	}
+	raw.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open over v4 DB: %v", err)
+	}
+	defer db.Close()
+
+	var chunks int
+	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM chunk_meta`).Scan(&chunks); err != nil {
+		t.Fatalf("count chunk_meta: %v", err)
+	}
+	if chunks != 0 {
+		t.Fatalf("chunk_meta rows after model migration = %d, want 0", chunks)
+	}
+	meta, err := db.Meta().Get()
+	if err != nil {
+		t.Fatalf("meta get: %v", err)
+	}
+	if meta.EmbedModel != "" || meta.EmbedDim != 0 {
+		t.Fatalf("embed info after model migration = %q/%d, want empty", meta.EmbedModel, meta.EmbedDim)
+	}
+	if err := db.UpsertVector("file", 2, "minishlab/potion-code-16M", "new-sha", vec256(1, 0, 0)); err != nil {
+		t.Fatalf("upsert 256-d vector after migration: %v", err)
+	}
+	if err := db.UpsertVector("file", 3, "bge-small-en-v1.5", "bad-sha", vec384(1, 0, 0)); err == nil {
+		t.Fatal("upsert 384-d legacy vector succeeded; want vec0 dimension error")
 	}
 }
 

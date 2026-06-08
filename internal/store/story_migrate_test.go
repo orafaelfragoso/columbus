@@ -11,8 +11,8 @@ import (
 // orphans.
 func TestMigrate0004BackfillsGeneralStories(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "columbus.sqlite")
-	dsn := "file:" + path + "?_foreign_keys=on"
-	raw, err := sql.Open("sqlite3", dsn)
+	dsn := "file:" + path + "?_pragma=foreign_keys(1)"
+	raw, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open raw: %v", err)
 	}

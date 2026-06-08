@@ -24,10 +24,10 @@ const SchemaVersion = 2
 const DefaultMaxFileSize int64 = 1_572_864
 
 // DefaultEmbedModel is the pinned local embedding model (informational).
-const DefaultEmbedModel = "bge-small-en-v1.5"
+const DefaultEmbedModel = "minishlab/potion-code-16M"
 
 // DefaultEmbedRuntime is the pinned local inference runtime (informational).
-const DefaultEmbedRuntime = "onnx"
+const DefaultEmbedRuntime = "model2vec"
 
 // Config is the parsed .columbus.json.
 type Config struct {

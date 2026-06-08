@@ -4,8 +4,6 @@ import (
 	"errors"
 	"testing"
 
-	sqlite3 "github.com/mattn/go-sqlite3"
-
 	"github.com/orafaelfragoso/columbus/internal/contract"
 )
 
@@ -301,8 +299,8 @@ func TestMapLockErr(t *testing.T) {
 	}
 
 	var ce *contract.Error
-	if got := mapLockErr(sqlite3.Error{Code: sqlite3.ErrBusy}); !errors.As(got, &ce) || ce.Code != contract.CodeIndexLocked {
-		t.Errorf("busy error = %v, want INDEX_LOCKED", got)
+	if got := mapLockErr(errors.New("database is locked")); !errors.As(got, &ce) || ce.Code != contract.CodeIndexLocked {
+		t.Errorf("locked error = %v, want INDEX_LOCKED", got)
 	}
 	if got := mapLockErr(errors.New("plain boom")); !errors.As(got, &ce) || ce.Code != contract.CodeStoreError {
 		t.Errorf("plain error = %v, want STORE_ERROR", got)

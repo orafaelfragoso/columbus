@@ -10,10 +10,6 @@ permissions:
 
 jobs:
   goreleaser:
-    # macOS runner: darwin builds natively with Apple clang+SDK, linux builds
-    # via zig cc. zig cannot cross-compile darwin (needs Apple system libs it
-    # doesn't bundle), so building darwin natively here is what makes the
-    # release reliable. zig -> linux is self-contained and needs no macOS SDK.
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -26,12 +22,12 @@ jobs:
         with:
           go-version: "1.26"
 
-      # zig provides the C cross-compiler for the linux cgo targets (darwin is
-      # built natively with the runner's Apple clang).
+      # Zig is only the C cross-compiler for linux cgo builds (tree-sitter).
+      # The embedding and SQLite/vector stack no longer need native libraries.
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.13.0
+          version: 0.16.0
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
@@ -41,14 +37,5 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASER_TOKEN }}
-          # sqlite-vec.c (-DSQLITE_CORE) includes a bare "sqlite3.h"; zig's linux
-          # sysroot has none, and macOS would use Apple's deprecated copy. Point
-          # every target's cgo compile at the vendored official header (goreleaser
-          # inherits this into each build's env).
-          CGO_CFLAGS: -I${{ github.workspace }}/third_party/sqlite
-          # cgo invokes `zig cc` from Go's read-only stdlib cwd, so zig cannot
-          # create its default local cache there (AccessDenied). setup-zig v2 no
-          # longer sets these for us (v1 did), so point both caches at a writable
-          # dir explicitly.
           ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig-local-cache
           ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache

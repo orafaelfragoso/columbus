@@ -4,24 +4,18 @@ project_name: columbus
 
 before:
   hooks:
-    - go mod tidy
     # The model weights are embedded via //go:embed; fetch them before any build
     # so the embed package compiles (the build fails loudly if absent).
     - make fetch-model
+    - go mod tidy
 
 builds:
   - id: columbus
     main: ./cmd/columbus
     binary: columbus
     builder: go
-    # Per target: stage libtokenizers.a (linked statically here) and the
-    # onnxruntime shared lib (shipped in the archive, dlopen'd at runtime).
-    hooks:
-      pre:
-        - bash scripts/fetch-native.sh {{ .Os }} {{ .Arch }} dist/native/{{ .Os }}_{{ .Arch }}
     env:
       - CGO_ENABLED=1
-      - "CGO_LDFLAGS=-Ldist/native/{{ .Os }}_{{ .Arch }}"
     flags:
       - -tags=fts5
     ldflags:
@@ -35,30 +29,17 @@ builds:
     goarch:
       - amd64
       - arm64
-    # onnxruntime dropped Intel-mac (osx-x86_64) binaries at 1.26.0 — the version
-    # the Go binding requires (API 26) — so there is no runtime to ship for
-    # darwin/amd64. macOS is Apple-silicon only.
-    ignore:
-      - goos: darwin
-        goarch: amd64
-    # This pipeline runs on a macOS runner (see release.yml):
-    #   - darwin builds natively with Apple clang+SDK (handles both arches via
-    #     -arch). zig CANNOT cross-compile darwin reliably: macOS needs Apple
-    #     system libs (libresolv, frameworks) it doesn't bundle, so it fails
-    #     with "AccessDenied" (no SDK on Linux) or "unable to find ... 'resolv'".
-    #   - linux builds via zig cc, which ships a self-contained C toolchain and
-    #     needs no macOS SDK. Only linux needs an override; darwin uses host cc.
+    # Tree-sitter keeps the binary on cgo. Linux cross-builds use Zig as a C
+    # compiler only; no C++ linker wrapper or native embedding libs are needed.
     overrides:
       - goos: linux
         goarch: amd64
         env:
-          - CC=zig cc -target x86_64-linux-gnu
-          - CXX=zig c++ -target x86_64-linux-gnu
+          - "CC=zig cc -target x86_64-linux-gnu"
       - goos: linux
         goarch: arm64
         env:
-          - CC=zig cc -target aarch64-linux-gnu
-          - CXX=zig c++ -target aarch64-linux-gnu
+          - "CC=zig cc -target aarch64-linux-gnu"
 
 archives:
   - id: default
@@ -68,14 +49,9 @@ archives:
       - tar.gz
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
-    # Ship the matching onnxruntime shared lib beside the binary (the loader
-    # finds it next to the executable) plus license/attribution. Vectors are not
-    # shipped — `columbus reindex` rebuilds them locally.
+    # Vectors are not shipped; `columbus reindex` rebuilds them locally.
     files:
       - LICENSE
-      - THIRD_PARTY.md
-      - src: dist/native/{{ .Os }}_{{ .Arch }}/libonnxruntime*
-        strip_parent: true
 
 checksum:
   name_template: "checksums.txt"

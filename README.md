@@ -44,9 +44,9 @@ Columbus does exactly three things:
 3. **Memory** — own the project's durable record: decisions, plus structured
    epics → stories → tasks with history, references, and drift checks.
 
-Embeddings run **on-device** with a bundled ONNX model (bge-small-en-v1.5); there
-are no LLM calls and nothing leaves your machine. Ranking, "why relevant" text,
-and risk hints are deterministic.
+Embeddings run **on-device** with bundled Model2Vec assets
+(`minishlab/potion-code-16M`); there are no LLM calls and nothing leaves your
+machine. Ranking, "why relevant" text, and risk hints are deterministic.
 
 ## Why Columbus
 
@@ -69,43 +69,31 @@ bleed tokens and go wrong. Columbus takes that off its plate.
 
 ## Install
 
-Requires Go 1.26+ and a C compiler (cgo). Columbus is always built with
-`-tags fts5` and `CGO_ENABLED=1`.
+Requires Go 1.26+ and a C compiler for the embedded tree-sitter grammars.
+Columbus is built with `-tags fts5`. The SQLite, vector, and embedding stack is
+pure Go, so no ONNX, tokenizer, or SQLite native libraries are required.
 
-### Release archives (full semantic build)
+### Release archives
 
 Download the archive for your platform from
 [Releases](https://github.com/orafaelfragoso/columbus/releases). Each archive
-ships the `columbus` binary **plus the matching onnxruntime shared library**
-beside it, so local natural-language (vector) search works out of the box with
-no network at runtime. The loader finds the lib next to the binary; override
-with `COLUMBUS_ORT_LIB`.
+ships a single `columbus` binary with the model assets embedded, so local
+natural-language (vector) search works out of the box with no network at
+runtime.
 
-### `go install` (keyword-fallback build)
-
-```sh
-CGO_ENABLED=1 go install -tags fts5 github.com/orafaelfragoso/columbus/cmd/columbus@latest
-```
-
-Installs `columbus` into `$(go env GOPATH)/bin`. This build has **no embedding
-runtime bundled**: search degrades to deterministic keyword (FTS) ranking until
-an onnxruntime shared library is available (`COLUMBUS_ORT_LIB` or next to the
-binary). Run `columbus doctor` to see the runtime status.
-
-### Build from source (full semantic)
+### Build from source
 
 ```sh
-brew install zig goreleaser ripgrep ast-grep
-make setup        # fetch model weights + libtokenizers.a + onnxruntime into ~/.columbus/libs
-make install      # -> dist/columbus  (always built with -tags fts5, CGO_ENABLED=1)
-export COLUMBUS_ORT_LIB="$HOME/.columbus/libs/libonnxruntime.dylib"  # .so on linux
+brew install ripgrep ast-grep
+make setup        # fetch Model2Vec assets into internal/embed/assets
+make install      # built with -tags fts5 and CGO_ENABLED=1 by default
 ```
 
 `git` is the only hard runtime dependency. `ripgrep` is the recommended search
 fast-path (a pure-Go fallback covers the rest); `ast-grep` is optional. The
-embedding engine needs two native libs (see `make setup` / the
-[`Makefile`](Makefile)): `libtokenizers.a` linked at build time and an
-onnxruntime shared lib loaded at runtime.
+SQLite metadata store and `vec0` vector search use the pure-Go modernc driver;
+the embedding engine uses a pure-Go Model2Vec runtime and embedded safetensors
+weights.
 
 ## Quick start
 
@@ -114,7 +102,7 @@ columbus install                 # onboard: write .columbus.json, create db, fir
 columbus search "parse config"   # ranked, LLM-ready context with exact line ranges
 columbus reindex                 # re-chunk + re-embed only what changed
 columbus view                    # full-screen dashboard (index, memory, epics, tasks, graph)
-columbus doctor                  # verify git, vec0, onnxruntime runtime, model + index health
+columbus doctor                  # verify git, vec0, model runtime + index health
 ```
 
 Then point your agent at Columbus as a tool (see

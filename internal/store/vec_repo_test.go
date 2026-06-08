@@ -20,23 +20,29 @@ func unit(v []float32) []float32 {
 	return out
 }
 
-// vec384 builds a 384-d vector whose first few components are set, rest zero,
-// then normalizes it.
-func vec384(head ...float32) []float32 {
-	v := make([]float32, 384)
+// testVec builds a vector whose first few components are set, rest zero, then
+// normalizes it.
+func testVec(dim int, head ...float32) []float32 {
+	v := make([]float32, dim)
 	copy(v, head)
 	return unit(v)
 }
 
+// vec256 builds a 256-d vector for the current Model2Vec embedding table.
+func vec256(head ...float32) []float32 { return testVec(256, head...) }
+
+// vec384 builds a legacy bge-sized vector for migration tests.
+func vec384(head ...float32) []float32 { return testVec(384, head...) }
+
 func TestVecUpsertAndSearchRoundTrip(t *testing.T) {
 	db := openTemp(t)
-	const model = "bge-small-en-v1.5"
+	const model = "minishlab/potion-code-16M"
 
-	q := vec384(1, 0, 0)
+	q := vec256(1, 0, 0)
 	if err := db.UpsertVector("file", 10, model, "sha-a", q); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	if err := db.UpsertVector("file", 11, model, "sha-b", vec384(0, 1, 0)); err != nil {
+	if err := db.UpsertVector("file", 11, model, "sha-b", vec256(0, 1, 0)); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -62,7 +68,7 @@ func TestVecUpsertAndSearchRoundTrip(t *testing.T) {
 func TestVecOwnerTypeFilter(t *testing.T) {
 	db := openTemp(t)
 	const model = "m"
-	q := vec384(1, 0, 0)
+	q := vec256(1, 0, 0)
 	if err := db.UpsertVector("file", 1, model, "s1", q); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +91,7 @@ func TestVecChunkSHASkipPath(t *testing.T) {
 	if _, ok, err := db.ChunkSHA("memory", 7, model); err != nil || ok {
 		t.Fatalf("ChunkSHA before insert = ok %v, err %v; want false, nil", ok, err)
 	}
-	if err := db.UpsertVector("memory", 7, model, "abc123", vec384(1)); err != nil {
+	if err := db.UpsertVector("memory", 7, model, "abc123", vec256(1)); err != nil {
 		t.Fatal(err)
 	}
 	sha, ok, err := db.ChunkSHA("memory", 7, model)
@@ -97,11 +103,11 @@ func TestVecChunkSHASkipPath(t *testing.T) {
 func TestVecUpsertReplacesInPlace(t *testing.T) {
 	db := openTemp(t)
 	const model = "m"
-	if err := db.UpsertVector("file", 1, model, "old", vec384(1, 0, 0)); err != nil {
+	if err := db.UpsertVector("file", 1, model, "old", vec256(1, 0, 0)); err != nil {
 		t.Fatal(err)
 	}
 	// Re-embed same owner+model with a new vector and sha.
-	if err := db.UpsertVector("file", 1, model, "new", vec384(0, 1, 0)); err != nil {
+	if err := db.UpsertVector("file", 1, model, "new", vec256(0, 1, 0)); err != nil {
 		t.Fatal(err)
 	}
 	sha, _, _ := db.ChunkSHA("file", 1, model)
@@ -109,7 +115,7 @@ func TestVecUpsertReplacesInPlace(t *testing.T) {
 		t.Errorf("sha = %q, want new", sha)
 	}
 	// Exactly one row should remain, and nearest to (0,1,0) is itself at ~0.
-	hits, err := db.SearchVectors(vec384(0, 1, 0), nil, 5)
+	hits, err := db.SearchVectors(vec256(0, 1, 0), nil, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,14 +131,14 @@ func TestVecDelete(t *testing.T) {
 	db := openTemp(t)
 	const model = "m"
 	for _, id := range []int64{1, 2, 3} {
-		if err := db.UpsertVector("file", id, model, "s", vec384(1, 0, 0)); err != nil {
+		if err := db.UpsertVector("file", id, model, "s", vec256(1, 0, 0)); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if err := db.DeleteVectors("file", []int64{1, 3}); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	hits, err := db.SearchVectors(vec384(1, 0, 0), nil, 10)
+	hits, err := db.SearchVectors(vec256(1, 0, 0), nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,11 +159,11 @@ func TestEmbedInfoRoundTrip(t *testing.T) {
 	if m.EmbedModel != "" || m.EmbedDim != 0 {
 		t.Errorf("fresh embed info = %q/%d, want empty", m.EmbedModel, m.EmbedDim)
 	}
-	if err := db.Meta().SetEmbedInfo("bge-small-en-v1.5", 384); err != nil {
+	if err := db.Meta().SetEmbedInfo("minishlab/potion-code-16M", 256); err != nil {
 		t.Fatal(err)
 	}
 	m, _ = db.Meta().Get()
-	if m.EmbedModel != "bge-small-en-v1.5" || m.EmbedDim != 384 {
-		t.Errorf("embed info = %q/%d, want bge-small-en-v1.5/384", m.EmbedModel, m.EmbedDim)
+	if m.EmbedModel != "minishlab/potion-code-16M" || m.EmbedDim != 256 {
+		t.Errorf("embed info = %q/%d, want minishlab/potion-code-16M/256", m.EmbedModel, m.EmbedDim)
 	}
 }

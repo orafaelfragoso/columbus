@@ -9,16 +9,12 @@ import (
 	"fmt"
 	"strings"
 
-	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-	sqlite3 "github.com/mattn/go-sqlite3"
+	sqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
+	_ "modernc.org/sqlite/vec"
 
 	"github.com/orafaelfragoso/columbus/internal/contract"
 )
-
-// Register sqlite-vec as a SQLite auto-extension, so every connection this
-// process opens has vec0 available. The extension is statically linked (cgo
-// binding, SQLITE_CORE) — no runtime .so, single binary preserved.
-func init() { sqlitevec.Auto() }
 
 // DB is an open Columbus database.
 type DB struct {
@@ -32,9 +28,9 @@ func Open(path string) (*DB, error) {
 	// WAL for reader/writer concurrency; immediate tx-lock so writes take the
 	// reserved lock up front (writer exclusivity); busy_timeout to wait on
 	// contention rather than fail instantly; foreign keys on.
-	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_synchronous=NORMAL&_foreign_keys=on&_busy_timeout=5000&_txlock=immediate",
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_txlock=immediate",
 		path)
-	sqlDB, err := sql.Open("sqlite3", dsn)
+	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
 	}
@@ -101,8 +97,8 @@ func mapLockErr(err error) error {
 	if errors.As(err, &ce) {
 		return ce
 	}
-	var se sqlite3.Error
-	if errors.As(err, &se) && (se.Code == sqlite3.ErrBusy || se.Code == sqlite3.ErrLocked) {
+	var se *sqlite.Error
+	if errors.As(err, &se) && isSQLiteLockCode(se.Code()) {
 		return &contract.Error{
 			Code:    contract.CodeIndexLocked,
 			Message: "another columbus process holds the writer lock",
@@ -113,4 +109,9 @@ func mapLockErr(err error) error {
 		return &contract.Error{Code: contract.CodeIndexLocked, Message: err.Error()}
 	}
 	return &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
+}
+
+func isSQLiteLockCode(code int) bool {
+	base := code & 0xff
+	return base == sqlite3.SQLITE_BUSY || base == sqlite3.SQLITE_LOCKED
 }

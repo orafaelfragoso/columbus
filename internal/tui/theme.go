@@ -57,11 +57,11 @@ func kindColor(k string) color.Color {
 		return cCyan
 	case "failure":
 		return cRed
-	case "reminder":
+	case "backlog":
 		return cYellow
 	case "command":
 		return cBlue
-	default: // glossary, note
+	default: // glossary
 		return cMuted
 	}
 }

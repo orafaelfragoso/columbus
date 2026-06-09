@@ -368,7 +368,7 @@ func memSub(counts map[string]int) string {
 		return "durable knowledge"
 	}
 	parts := make([]string, 0, len(counts))
-	for _, k := range []string{"decision", "pattern", "failure", "command", "glossary", "note", "reminder"} {
+	for _, k := range []string{"decision", "pattern", "failure", "command", "glossary", "backlog"} {
 		if n := counts[k]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, k))
 		}

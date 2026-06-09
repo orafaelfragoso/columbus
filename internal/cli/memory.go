@@ -66,7 +66,7 @@ func newMemoryAddCmd(env *Env) *cobra.Command {
 	f.StringVar(&p.Title, "title", "", "short title")
 	f.StringVar(&p.Body, "body", "", "description / body")
 	f.StringVar(&p.Parent, "parent", "", "parent id (epic for a story, story for a task)")
-	f.StringVar(&p.Type, "type", "", "context sub-kind (decision|pattern|failure|command|glossary|note|reminder)")
+	f.StringVar(&p.Type, "type", "", "context sub-kind (decision|pattern|failure|command|glossary|backlog)")
 	f.StringArrayVar(&p.Tags, "tag", nil, "tag (repeatable)")
 	f.StringArrayVar(&p.Refs, "ref", nil, "context link file:<path>|symbol:<name> (repeatable)")
 	f.StringArrayVar(&p.Evidence, "evidence", nil, "context evidence path:start-end (repeatable)")

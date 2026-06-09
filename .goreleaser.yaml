@@ -99,3 +99,7 @@ changelog:
 release:
   draft: false
   prerelease: auto
+  # release-please creates the GitHub Release (with the changelog as its body)
+  # when it tags the version. GoReleaser only attaches binaries here, so keep the
+  # existing notes instead of overwriting them.
+  mode: keep-existing

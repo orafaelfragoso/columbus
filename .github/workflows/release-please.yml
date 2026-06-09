@@ -1,0 +1,24 @@
+name: release-please
+
+# Conventional-commit driven version bump + changelog. On every push to main this
+# maintains a "release PR" (bumps the version, updates CHANGELOG.md). Merging that
+# PR tags vX.Y.Z and creates the GitHub Release; the tag push then triggers
+# release.yml (GoReleaser) which attaches the built binaries to that release.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          # PAT (not the default GITHUB_TOKEN) so the tag/release it creates
+          # re-triggers release.yml. The default token deliberately does not
+          # trigger downstream workflows.
+          token: ${{ secrets.RELEASER_TOKEN }}

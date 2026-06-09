@@ -5,6 +5,13 @@ All notable changes to Columbus will be documented in this file.
 This project follows [Conventional Commits](https://www.conventionalcommits.org/),
 and released changes are grouped by GoReleaser from commit history.
 
+## [0.2.2](https://github.com/orafaelfragoso/columbus/compare/v0.2.1...v0.2.2) (2026-06-09)
+
+
+### Bug Fixes
+
+* remove unused TUI helpers ([a6eb9f7](https://github.com/orafaelfragoso/columbus/commit/a6eb9f7f2dcbf20011d5781a63dac793d4048464))
+
 ## [Unreleased]
 
 No unreleased changes yet.

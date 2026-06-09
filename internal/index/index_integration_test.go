@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,6 +191,41 @@ func TestIndexStatusDoesNotWrite(t *testing.T) {
 	hashes, _ := ix.DB.FileHashes()
 	if len(hashes) != 0 {
 		t.Errorf("status must not write, found %d files", len(hashes))
+	}
+}
+
+func TestIndexNonCodeFilesEmbedContent(t *testing.T) {
+	ix, work := newIndexer(t)
+	fe := &fakeEmbedder{}
+	ix.Embedder = fe
+
+	// A non-code text file whose content must reach the embedder...
+	write(t, work, "deploy.yml", "steps:\n  - run: magic_pipeline_token_xyz\n")
+	// ...a generated/lock file whose content must NOT...
+	write(t, work, "go.sum", "example.com/m v1.0.0/go.mod h1:lockhashmustnotembed=\n")
+	// ...and a binary blob that is skipped entirely.
+	if err := os.WriteFile(filepath.Join(work, "blob.bin"), []byte{0, 1, 2, 0, 3}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := ix.Run(ModeFull)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if res.SkippedBinary != 1 {
+		t.Errorf("skipped binary = %d, want 1", res.SkippedBinary)
+	}
+
+	seen := strings.Join(fe.seen, "\n")
+	if !strings.Contains(seen, "magic_pipeline_token_xyz") {
+		t.Error("non-code file content was not embedded")
+	}
+	if strings.Contains(seen, "lockhashmustnotembed") {
+		t.Error("generated/lock file content must not be embedded")
+	}
+	// The lockfile still indexes as a file row (path-only embed); the binary does not.
+	if got := vecCount(t, ix, fileOwner); got != res.TotalFiles {
+		t.Errorf("file vectors = %d, want %d (one per indexed file)", got, res.TotalFiles)
 	}
 }
 

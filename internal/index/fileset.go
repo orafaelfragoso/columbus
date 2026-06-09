@@ -125,6 +125,43 @@ func matchesAny(rel string, excludes []string) bool {
 	return false
 }
 
+// embedContentCap bounds how many bytes of a non-code file's content feed its
+// file embedding. It is distinct from Indexer.MaxFileSize (which skips a file
+// outright): files under MaxFileSize but over this cap still index and embed,
+// contributing only their head slice.
+const embedContentCap = 64 * 1024
+
+// generatedFiles are lock/generated files whose content is high-volume and
+// low-signal. They still index as file rows but their content is kept out of
+// the embedding to avoid drowning search in machine-written noise.
+var generatedFiles = map[string]bool{
+	"package-lock.json":   true,
+	"npm-shrinkwrap.json": true,
+	"yarn.lock":           true,
+	"pnpm-lock.yaml":      true,
+	"go.sum":              true,
+	"cargo.lock":          true,
+	"composer.lock":       true,
+	"gemfile.lock":        true,
+	"poetry.lock":         true,
+	"pipfile.lock":        true,
+}
+
+// isGeneratedFile reports whether relPath's base name is a known generated or
+// lock file (case-insensitive).
+func isGeneratedFile(relPath string) bool {
+	return generatedFiles[strings.ToLower(filepath.Base(relPath))]
+}
+
+// headSlice returns content unchanged, or its first embedContentCap bytes when
+// it is larger, so leading content stays discoverable without embedding bulk.
+func headSlice(content []byte) []byte {
+	if len(content) > embedContentCap {
+		return content[:embedContentCap]
+	}
+	return content
+}
+
 // readFile reads a candidate's bytes from disk.
 func readFile(workDir, rel string) ([]byte, error) {
 	b, err := os.ReadFile(filepath.Join(workDir, filepath.FromSlash(rel)))

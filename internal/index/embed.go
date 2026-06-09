@@ -392,9 +392,11 @@ func bodySpan(src []byte, startLine, endLine int) string {
 }
 
 // fileFallbackText is the embed text for a file with no extracted symbols:
-// path, package, role and any top-level signatures.
+// path, package, role, any top-level signatures, and — for non-code files — the
+// file's content (head-sliced) so manifests, docs, build and CI files are
+// searchable by what they contain, not just where they live.
 func fileFallbackText(p *parsed) string {
-	parts := make([]string, 0, 3+len(p.symbols))
+	parts := make([]string, 0, 4+len(p.symbols))
 	for _, s := range []string{p.record.Path, p.record.Package, p.record.Role} {
 		if s != "" {
 			parts = append(parts, s)
@@ -404,6 +406,9 @@ func fileFallbackText(p *parsed) string {
 		if s.Signature != "" {
 			parts = append(parts, s.Signature)
 		}
+	}
+	if len(p.content) > 0 {
+		parts = append(parts, string(headSlice(p.content)))
 	}
 	return strings.Join(parts, " ")
 }

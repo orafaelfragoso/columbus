@@ -267,6 +267,11 @@ func (ix *Indexer) scanOne(c candidate, existing map[string]string, full, doPars
 				p.exsyms = ir.Symbols
 			}
 		}
+	} else if ix.Embedder != nil && !isGeneratedFile(c.RelPath) {
+		// Non-code file (manifest, doc, build, CI): no symbols to extract, but
+		// feed its content to the file embedding so it is searchable by what it
+		// says, not just its path. Generated/lock files are excluded.
+		p.content = content
 	}
 	o.parsed = p
 	return o

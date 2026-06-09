@@ -10,10 +10,7 @@ import (
 	"github.com/orafaelfragoso/columbus/internal/work"
 )
 
-const (
-	maxMemRows = 12
-	maxHubRows = 12
-)
+const maxHubRows = 12
 
 // StoreSource loads a Snapshot from the project store and memory manager. It is
 // a pure read: it never mutates and never re-resolves the working tree.
@@ -80,10 +77,8 @@ func (s *StoreSource) Load() (Snapshot, error) {
 			return Snapshot{}, err
 		}
 		memCounts, memTotal = list.Counts, list.Total
-		for i, m := range list.Memories {
-			if i >= maxMemRows {
-				break
-			}
+		memRows = make([]MemRow, 0, len(list.Memories))
+		for _, m := range list.Memories {
 			memRows = append(memRows, MemRow{ID: m.ID, Kind: m.Kind, Title: m.Title})
 		}
 	}

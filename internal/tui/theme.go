@@ -55,11 +55,13 @@ func kindColor(k string) color.Color {
 		return cViolet
 	case "pattern":
 		return cCyan
-	case "gotcha":
+	case "failure":
 		return cRed
-	case "reference":
+	case "reminder":
+		return cYellow
+	case "command":
 		return cBlue
-	default:
+	default: // glossary, note
 		return cMuted
 	}
 }

@@ -79,7 +79,7 @@ func (s *StoreSource) Load() (Snapshot, error) {
 		memCounts, memTotal = list.Counts, list.Total
 		memRows = make([]MemRow, 0, len(list.Memories))
 		for _, m := range list.Memories {
-			memRows = append(memRows, MemRow{ID: m.ID, Kind: m.Kind, Title: m.Title})
+			memRows = append(memRows, MemRow{ID: m.ID, Kind: m.Kind, Title: m.Title, Tags: m.Tags})
 		}
 	}
 

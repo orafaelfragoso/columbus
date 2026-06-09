@@ -246,7 +246,7 @@ func (m *Manager) List(kind, tag string) (ListResult, error) {
 	}
 	res := ListResult{Kind: kind, Tag: tag, Counts: map[string]int{}}
 	for _, b := range briefs {
-		res.Memories = append(res.Memories, MemoryRef{ID: FormatID(b.ID), Kind: b.Kind, Title: b.Title})
+		res.Memories = append(res.Memories, MemoryRef{ID: FormatID(b.ID), Kind: b.Kind, Title: b.Title, Tags: b.Tags})
 		res.Counts[b.Kind]++
 	}
 	res.Total = len(res.Memories)
@@ -275,7 +275,7 @@ func (m *Manager) Search(query string, limit int) (ListResult, error) {
 		if !ok {
 			continue
 		}
-		res.Memories = append(res.Memories, MemoryRef{ID: FormatID(b.ID), Kind: b.Kind, Title: b.Title})
+		res.Memories = append(res.Memories, MemoryRef{ID: FormatID(b.ID), Kind: b.Kind, Title: b.Title, Tags: b.Tags})
 		res.Counts[b.Kind]++
 	}
 	res.Total = len(res.Memories)

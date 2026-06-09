@@ -12,9 +12,10 @@ import (
 
 // MemoryRef is a memory summary.
 type MemoryRef struct {
-	ID    string `json:"id"`
-	Kind  string `json:"kind"`
-	Title string `json:"title"`
+	ID    string   `json:"id"`
+	Kind  string   `json:"kind"`
+	Title string   `json:"title"`
+	Tags  []string `json:"tags,omitempty"`
 }
 
 // Evidence is a rendered evidence anchor.

@@ -72,6 +72,7 @@ type MemRow struct {
 	ID    string
 	Kind  string
 	Title string
+	Tags  []string
 }
 
 // HubRow is a file and its import in-degree.

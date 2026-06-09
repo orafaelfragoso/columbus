@@ -234,6 +234,9 @@ func TestMemoryRepoRoundTrip(t *testing.T) {
 	if err != nil || len(list) != 1 {
 		t.Fatalf("ListMemories = %v, %v", list, err)
 	}
+	if len(list[0].Tags) != 1 || list[0].Tags[0] != "storage" {
+		t.Errorf("ListMemories tags = %v, want [storage]", list[0].Tags)
+	}
 	ids, err := db.AllMemoryIDs()
 	if err != nil || len(ids) != 1 || ids[0] != id {
 		t.Fatalf("AllMemoryIDs = %v, %v", ids, err)

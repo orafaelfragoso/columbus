@@ -123,7 +123,10 @@ func (t *Tx) MemoryExists(id int64) (bool, error) {
 
 // ListMemories returns memory summaries filtered by optional kind and tag.
 func (d *DB) ListMemories(kind, tag string) ([]MemoryBrief, error) {
-	query := `SELECT DISTINCT m.id, m.kind, m.title FROM memories m`
+	query := `SELECT DISTINCT m.id, m.kind, m.title,
+		COALESCE((SELECT group_concat(tag, ',')
+		          FROM (SELECT tag FROM memory_tags WHERE memory_id = m.id ORDER BY tag)), '')
+		FROM memories m`
 	var args []any
 	var where []string
 	if tag != "" {
@@ -148,8 +151,12 @@ func (d *DB) ListMemories(kind, tag string) ([]MemoryBrief, error) {
 	var out []MemoryBrief
 	for rows.Next() {
 		var m MemoryBrief
-		if err := rows.Scan(&m.ID, &m.Kind, &m.Title); err != nil {
+		var tags string
+		if err := rows.Scan(&m.ID, &m.Kind, &m.Title, &tags); err != nil {
 			return nil, storeErr(err)
+		}
+		if tags != "" {
+			m.Tags = strings.Split(tags, ",")
 		}
 		out = append(out, m)
 	}

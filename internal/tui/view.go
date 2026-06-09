@@ -214,9 +214,16 @@ func (m Model) memoryTableView(innerW, rows int) string {
 		innerW = 1
 	}
 	cols := memColumns(innerW)
+	hasTags := len(cols) == 3
 	kindW, titleW := cols[0].Width, cols[1].Width
+	tagsW := 0
+	header := cell(cols[0].Title, kindW, cMuted) + cell(cols[1].Title, titleW, cMuted)
+	if hasTags {
+		tagsW = cols[2].Width
+		header += cell(cols[2].Title, tagsW, cMuted)
+	}
 	lines := []string{
-		cell(cols[0].Title, kindW, cMuted) + cell(cols[1].Title, titleW, cMuted),
+		header,
 		st(cBorder, false).Render(strings.Repeat("─", innerW)),
 	}
 
@@ -231,14 +238,20 @@ func (m Model) memoryTableView(innerW, rows int) string {
 		mr := m.snap.Mems[i]
 		kind := truncate(strings.ToUpper(mr.Kind), kindW)
 		title := truncate(mr.Title, titleW)
+		tags := truncate(strings.Join(mr.Tags, ","), tagsW)
 		if i == cursor {
 			row := padR(kind, kindW) + padR(title, titleW)
+			if hasTags {
+				row += padR(tags, tagsW)
+			}
 			lines = append(lines, selectionStyle().Render(row))
 			continue
 		}
-		lines = append(lines,
-			cell(kind, kindW, kindColor(mr.Kind))+cell(title, titleW, cText),
-		)
+		row := cell(kind, kindW, kindColor(mr.Kind)) + cell(title, titleW, cText)
+		if hasTags {
+			row += cell(tags, tagsW, cMuted)
+		}
+		lines = append(lines, row)
 	}
 	for len(lines) < rows {
 		lines = append(lines, strings.Repeat(" ", innerW))
@@ -388,23 +401,48 @@ func colW(n int) int {
 	return n
 }
 
+const (
+	memKindW = 10
+	memTagsW = 16
+	// memTagsMinInner is the smallest inner width that still leaves a readable
+	// Title once Kind and Tags are subtracted; below it the Tags column is
+	// dropped so the table degrades to Kind + Title on narrow panes.
+	memTagsMinInner = memKindW + memTagsW + 12
+)
+
+// memHasTags reports whether the Tags column fits at the given inner width.
+func memHasTags(inner int) bool { return inner >= memTagsMinInner }
+
 func memColumns(inner int) []table.Column {
-	kindW := 10
-	return []table.Column{
-		{Title: "Kind", Width: kindW},
-		{Title: "Title", Width: colW(inner - kindW)},
+	cols := []table.Column{
+		{Title: "Kind", Width: memKindW},
 	}
+	if memHasTags(inner) {
+		cols = append(cols,
+			table.Column{Title: "Title", Width: colW(inner - memKindW - memTagsW)},
+			table.Column{Title: "Tags", Width: memTagsW},
+		)
+		return cols
+	}
+	return append(cols, table.Column{Title: "Title", Width: colW(inner - memKindW)})
 }
 
 func memTableRows(mems []MemRow, inner int) []table.Row {
-	kindW := 10
-	titleW := colW(inner - kindW)
+	hasTags := memHasTags(inner)
+	titleW := colW(inner - memKindW)
+	if hasTags {
+		titleW = colW(inner - memKindW - memTagsW)
+	}
 	rows := make([]table.Row, 0, len(mems))
 	for _, mr := range mems {
-		rows = append(rows, table.Row{
+		row := table.Row{
 			st(kindColor(mr.Kind), false).Render(strings.ToUpper(mr.Kind)),
 			truncate(mr.Title, titleW),
-		})
+		}
+		if hasTags {
+			row = append(row, truncate(strings.Join(mr.Tags, ","), memTagsW))
+		}
+		rows = append(rows, row)
 	}
 	return rows
 }

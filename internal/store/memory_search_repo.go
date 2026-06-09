@@ -10,6 +10,7 @@ type MemoryBrief struct {
 	ID    int64
 	Kind  string
 	Title string
+	Tags  []string
 }
 
 // SearchMemoryFTS returns memory ids matching the FTS query, best first.

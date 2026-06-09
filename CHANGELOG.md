@@ -5,6 +5,20 @@ All notable changes to Columbus will be documented in this file.
 This project follows [Conventional Commits](https://www.conventionalcommits.org/),
 and released changes are grouped by GoReleaser from commit history.
 
+## [0.2.3](https://github.com/orafaelfragoso/columbus/compare/v0.2.2...v0.2.3) (2026-06-09)
+
+
+### Features
+
+* **index:** embed non-code file content for search ([2af24c7](https://github.com/orafaelfragoso/columbus/commit/2af24c7829a8e371fb13644340d23e75f1452d69))
+* **memory:** add note and reminder memory kinds ([8ac1956](https://github.com/orafaelfragoso/columbus/commit/8ac1956f2f320a2200597edb6a7b005207a67ba9))
+* **tui:** show tags column in memories table ([df0b901](https://github.com/orafaelfragoso/columbus/commit/df0b9019818190b4e3b032909f6680f34671a779))
+
+
+### Bug Fixes
+
+* **tui:** show all memories in the table, not just the first 12 ([9be2766](https://github.com/orafaelfragoso/columbus/commit/9be2766132367c241c173f3de059e1e4774711f8))
+
 ## [0.2.2](https://github.com/orafaelfragoso/columbus/compare/v0.2.1...v0.2.2) (2026-06-09)
 
 

@@ -5,6 +5,17 @@ All notable changes to Columbus will be documented in this file.
 This project follows [Conventional Commits](https://www.conventionalcommits.org/),
 and released changes are grouped by GoReleaser from commit history.
 
+## [0.3.0](https://github.com/orafaelfragoso/columbus/compare/v0.2.3...v0.3.0) (2026-06-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* --json contract bumps to schema_version 2 (epic/task grains removed, memories section added), memory export schema bumps to v4 (memories only, older documents rejected), epic/story/task commands and memory kinds decision/pattern/failure/command/glossary/backlog are gone, and migration 0006 destructively drops work data and wipes existing memories.
+
+### Features
+
+* drop work surface, simplify memory kinds, make search the master query ([0b0b176](https://github.com/orafaelfragoso/columbus/commit/0b0b1768b6cb3c43789867cbb74e679fb30d8613))
+
 ## [0.2.3](https://github.com/orafaelfragoso/columbus/compare/v0.2.2...v0.2.3) (2026-06-09)
 
 

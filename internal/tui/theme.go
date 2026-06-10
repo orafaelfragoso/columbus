@@ -160,57 +160,6 @@ func truncate(s string, w int) string {
 	return string(r) + "…"
 }
 
-func wrapText(s string, w int) []string {
-	if w < 1 {
-		return []string{""}
-	}
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return []string{""}
-	}
-
-	lines := make([]string, 0, len(words))
-	line := ""
-	for _, word := range words {
-		for lipgloss.Width(word) > w {
-			if line != "" {
-				lines = append(lines, line)
-				line = ""
-			}
-			var chunk string
-			chunk, word = splitWord(word, w)
-			lines = append(lines, chunk)
-		}
-		if line == "" {
-			line = word
-			continue
-		}
-		if lipgloss.Width(line)+1+lipgloss.Width(word) <= w {
-			line += " " + word
-			continue
-		}
-		lines = append(lines, line)
-		line = word
-	}
-	if line != "" {
-		lines = append(lines, line)
-	}
-	return lines
-}
-
-func splitWord(s string, w int) (string, string) {
-	runes := []rune(s)
-	for i := 1; i <= len(runes); i++ {
-		if lipgloss.Width(string(runes[:i])) > w {
-			if i == 1 {
-				return string(runes[:1]), string(runes[1:])
-			}
-			return string(runes[:i-1]), string(runes[i-1:])
-		}
-	}
-	return s, ""
-}
-
 func comma(n int) string {
 	s := strconv.Itoa(n)
 	var out []byte

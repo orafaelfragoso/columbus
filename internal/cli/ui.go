@@ -19,16 +19,15 @@ import (
 )
 
 // newViewCmd builds `columbus view`: a full-screen, read-mostly dashboard over
-// the project's index, memory, embeddings, and structured work.
+// the project's index, memory and embeddings.
 func newViewCmd(env *Env) *cobra.Command {
 	return &cobra.Command{
 		Use:   "view",
-		Short: "open the interactive dashboard (index, memory, embeddings, work)",
+		Short: "open the interactive dashboard (index, memory, embeddings)",
 		Long: "Open a full-screen terminal dashboard over the indexed project: index " +
-			"freshness, embeddings, durable memory, and a Kanban work view for epics, " +
-			"stories and tasks. Read-mostly — tab to switch views, arrows to navigate, " +
-			"enter for detail, / to semantic-search code/memory/work, r to refresh, " +
-			"R to reindex, q to quit.",
+			"freshness, embeddings and durable memory. Read-mostly — arrows to " +
+			"navigate, enter for detail, / to semantic-search code/memory, " +
+			"r to refresh, R to reindex, q to quit.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			proj, err := env.openProject()
@@ -90,9 +89,8 @@ func reindexFunc(env *Env, proj *projectContext, reg *extract.Registry) func() e
 	}
 }
 
-// searchFunc runs a global ranked semantic search across code, memory, epics,
-// stories and tasks (the same engine `columbus search --kind all` uses) and maps
-// it to SearchHits.
+// searchFunc runs a global ranked semantic search across code and memory (the
+// same engine `columbus search --kind all` uses) and maps it to SearchHits.
 func searchFunc(env *Env, proj *projectContext, reg *extract.Registry, embedder search.Embedder) func(string) ([]tui.SearchHit, error) {
 	return func(q string) ([]tui.SearchHit, error) {
 		engine := &search.Engine{
@@ -107,32 +105,28 @@ func searchFunc(env *Env, proj *projectContext, reg *extract.Registry, embedder 
 		if err != nil {
 			return nil, err
 		}
-		hits := make([]tui.SearchHit, 0, len(res.Hits))
+		hits := make([]tui.SearchHit, 0, len(res.Hits)+len(res.Memories))
 		for _, h := range res.Hits {
 			hits = append(hits, tui.SearchHit{
-				Grain: h.Grain, ID: h.ID, Title: hitTitle(h), Where: hitWhere(h),
+				Grain: h.Grain, Title: h.Name, Where: hitWhere(h),
 				Score: h.Score, Snippet: h.Snippet,
+			})
+		}
+		for _, m := range res.Memories {
+			hits = append(hits, tui.SearchHit{
+				Grain: "memory", ID: m.ID, Title: m.Title, Where: m.ID,
+				Score: m.Score, Snippet: m.Body,
 			})
 		}
 		return hits, nil
 	}
 }
 
-func hitTitle(h search.Hit) string {
-	if h.Name != "" {
-		return h.Name
-	}
-	return h.ID
-}
-
 func hitWhere(h search.Hit) string {
-	if h.Path != "" {
-		if h.StartLine > 0 {
-			return fmt.Sprintf("%s:%d", h.Path, h.StartLine)
-		}
-		return h.Path
+	if h.StartLine > 0 {
+		return fmt.Sprintf("%s:%d", h.Path, h.StartLine)
 	}
-	return h.ID
+	return h.Path
 }
 
 // currentBranch resolves the working-tree branch for the header. Best-effort:

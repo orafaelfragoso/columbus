@@ -2,7 +2,8 @@
 // metadata (in-DB) and live content matches over the working tree (ripgrep
 // fast-path or pure-Go fallback). Both feed a single deterministic feature
 // function; the top results are enriched with live line ranges/snippets, 1-hop
-// graph edges and linked memories.
+// graph edges and linked memories. One search is the master query: code hits
+// plus the full bodies of the most relevant memories in a single result.
 package search
 
 import (
@@ -26,8 +27,6 @@ const (
 	KindAll Kind = iota
 	KindCode
 	KindMemory
-	KindEpic
-	KindTask
 )
 
 // ParseKind maps a flag value to a Kind.
@@ -39,12 +38,8 @@ func ParseKind(s string) (Kind, error) {
 		return KindCode, nil
 	case "memory":
 		return KindMemory, nil
-	case "epic":
-		return KindEpic, nil
-	case "task":
-		return KindTask, nil
 	default:
-		return KindAll, contract.Errorf(contract.CodeUsage, "unknown --kind %q (want code|memory|epic|task|all)", s)
+		return KindAll, contract.Errorf(contract.CodeUsage, "unknown --kind %q (want code|memory|all)", s)
 	}
 }
 
@@ -54,10 +49,6 @@ func (k Kind) String() string {
 		return "code"
 	case KindMemory:
 		return "memory"
-	case KindEpic:
-		return "epic"
-	case KindTask:
-		return "task"
 	default:
 		return "all"
 	}
@@ -113,6 +104,9 @@ const (
 	// ftsRescueCap bounds the exact-identifier FTS union folded into semantic
 	// candidates (NL embeddings miss literal tokens like getUserByIDv2).
 	ftsRescueCap = 10
+	// memoryDetailCap bounds how many top memory hits are expanded to full
+	// bodies in the MEMORIES section (per-section cap, independent of Limit).
+	memoryDetailCap = 5
 	// wVector / wHeuristic blend the primary vector signal with the deterministic
 	// re-rank. They sum to 1.0.
 	wVector    = 0.70
@@ -176,7 +170,7 @@ func (e *Engine) Search(q Query) (SearchResult, error) {
 
 	res := SearchResult{Query: q.Text, Kind: q.Kind.String()}
 
-	// Embed the query once; every kind (code, memory, work) shares the vector.
+	// Embed the query once; both sections (code, memory) share the vector.
 	semantic := e.semanticEnabled(meta)
 	var qvec []float32
 	if semantic {
@@ -215,35 +209,20 @@ func (e *Engine) Search(q Query) (SearchResult, error) {
 		}
 	}
 
-	if q.Kind == KindAll || q.Kind == KindMemory {
-		var memHits []Hit
-		if semantic {
-			memHits, err = e.semanticMemoryHits(qvec, match)
-		} else {
-			memHits, err = e.memoryHits(match)
-		}
-		if err != nil {
-			return SearchResult{}, err
-		}
-		res.Hits = append(res.Hits, memHits...)
-	}
-
-	if q.Kind == KindAll || q.Kind == KindEpic || q.Kind == KindTask {
-		var workHits []Hit
-		if semantic {
-			workHits, err = e.semanticWorkHits(qvec, match, q.Kind)
-		} else {
-			workHits, err = e.workHits(match, q.Kind)
-		}
-		if err != nil {
-			return SearchResult{}, err
-		}
-		res.Hits = append(res.Hits, workHits...)
-	}
-
 	sortHits(res.Hits)
 	if len(res.Hits) > q.Limit {
 		res.Hits = res.Hits[:q.Limit]
+	}
+
+	// Memories are a separate section with full bodies (capped at
+	// memoryDetailCap), so one search returns complete memory context without a
+	// follow-up `show memory`.
+	if q.Kind == KindAll || q.Kind == KindMemory {
+		mems, err := e.memoryDetails(qvec, match, semantic)
+		if err != nil {
+			return SearchResult{}, err
+		}
+		res.Memories = mems
 	}
 
 	if e.liveEnabled() {
@@ -253,7 +232,7 @@ func (e *Engine) Search(q Query) (SearchResult, error) {
 		return SearchResult{}, err
 	}
 
-	res.Total = len(res.Hits)
+	res.Total = len(res.Hits) + len(res.Memories)
 	return res, nil
 }
 
@@ -483,7 +462,7 @@ func (c *codeCand) toHit(tokens []string, semantic bool) Hit {
 	sig := signals{
 		name: c.name, signature: c.signature, path: c.path, role: c.role,
 		importedByCount: c.importedByCount, hasTests: c.hasTests,
-		hasMemory: len(c.mems) > 0, hasFailureMemory: hasFailure(c.mems),
+		hasMemory:      len(c.mems) > 0,
 		contentDensity: c.contentDensity,
 	}
 	heur := score(tokens, sig)
@@ -504,82 +483,29 @@ func (c *codeCand) toHit(tokens []string, semantic bool) Hit {
 	}
 }
 
-func (e *Engine) memoryHits(match string) ([]Hit, error) {
-	ids, err := e.DB.SearchMemoryFTS(match, candidateCap)
-	if err != nil {
-		return nil, err
-	}
-	var hits []Hit
-	for _, id := range ids {
-		m, ok, err := e.DB.MemoryBriefByID(id)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			continue
-		}
-		risk := "low"
-		if m.Kind == "failure" {
-			risk = "high"
-		}
-		hits = append(hits, Hit{
-			Grain: "memory", Name: m.Title, SymbolKind: m.Kind,
-			Score: 0.6, Why: "memory match", RiskLevel: risk,
-			Memories: []MemoryRef{{ID: memID(m.ID), Kind: m.Kind, Title: m.Title}},
-		})
-	}
-	return hits, nil
+// memCand is one ranked memory candidate before full-body expansion.
+type memCand struct {
+	id    int64
+	score float64
+	why   string
 }
 
-// workHits returns ranked epic/task results from the work FTS index, optionally
-// narrowed to a single noun.
-func (e *Engine) workHits(match string, kind Kind) ([]Hit, error) {
-	owners, err := e.DB.SearchWorkFTS(match, candidateCap)
-	if err != nil {
-		return nil, err
-	}
-	var hits []Hit
-	for _, o := range owners {
-		if kind == KindEpic && o.OwnerType != "epic" {
-			continue
-		}
-		if kind == KindTask && o.OwnerType != "task" {
-			continue
-		}
-		hits = append(hits, Hit{
-			Grain: o.OwnerType, ID: workID(o.OwnerType, o.OwnerID), Name: o.Title, SymbolKind: o.Status,
-			Score: 0.6, Why: o.OwnerType + " match", RiskLevel: "low",
-		})
-	}
-	return hits, nil
-}
-
-func workID(ownerType string, id int64) string {
-	return fmt.Sprintf("%s_%03d", ownerType, id)
-}
-
-// semanticMemoryHits returns the nearest memories to the query vector, then
-// unions the FTS matches so memories added since the last index (not yet
-// embedded) still surface.
-func (e *Engine) semanticMemoryHits(qvec []float32, match string) ([]Hit, error) {
-	vhits, err := e.DB.SearchVectors(qvec, []string{"memory"}, vecK)
-	if err != nil {
-		return nil, err
-	}
+// memoryCandidates ranks memories against the query: vector kNN when semantic
+// (unioned with FTS so memories added since the last index still surface), or
+// FTS alone on the keyword path.
+func (e *Engine) memoryCandidates(qvec []float32, match string, semantic bool) ([]memCand, error) {
 	seen := map[int64]bool{}
-	var hits []Hit
-	for _, vh := range vhits {
-		m, ok, err := e.DB.MemoryBriefByID(vh.OwnerID)
+	var cands []memCand
+	if semantic {
+		vhits, err := e.DB.SearchVectors(qvec, []string{"memory"}, vecK)
 		if err != nil {
 			return nil, err
 		}
-		if !ok {
-			continue
+		for _, vh := range vhits {
+			seen[vh.OwnerID] = true
+			cands = append(cands, memCand{id: vh.OwnerID, score: round(clamp01(1 - vh.Distance)), why: "semantic match"})
 		}
-		seen[m.ID] = true
-		hits = append(hits, memoryHit(m, round(clamp01(1-vh.Distance)), "semantic match"))
 	}
-	// FTS union for un-embedded memories.
 	ids, err := e.DB.SearchMemoryFTS(match, candidateCap)
 	if err != nil {
 		return nil, err
@@ -588,86 +514,45 @@ func (e *Engine) semanticMemoryHits(qvec []float32, match string) ([]Hit, error)
 		if seen[id] {
 			continue
 		}
-		m, ok, err := e.DB.MemoryBriefByID(id)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			continue
-		}
 		seen[id] = true
-		hits = append(hits, memoryHit(m, 0.6, "memory match"))
+		cands = append(cands, memCand{id: id, score: 0.6, why: "memory match"})
 	}
-	return hits, nil
+	sort.SliceStable(cands, func(i, j int) bool { return cands[i].score > cands[j].score })
+	return cands, nil
 }
 
-// semanticWorkHits returns the nearest epics/stories/tasks to the query vector
-// (narrowed to the kind's owner types), unioned with the FTS matches so work
-// items added since the last index still surface.
-func (e *Engine) semanticWorkHits(qvec []float32, match string, kind Kind) ([]Hit, error) {
-	allow := map[string]bool{}
-	var owners []string
-	switch kind {
-	case KindEpic:
-		owners = []string{"epic"}
-	case KindTask:
-		owners = []string{"task"}
-	default:
-		owners = []string{"epic", "story", "task"}
-	}
-	for _, o := range owners {
-		allow[o] = true
-	}
-
-	vhits, err := e.DB.SearchVectors(qvec, owners, vecK)
+// memoryDetails expands the top-ranked memory candidates to full records
+// (body, tags, links, evidence anchors), capped at memoryDetailCap.
+func (e *Engine) memoryDetails(qvec []float32, match string, semantic bool) ([]MemoryDetail, error) {
+	cands, err := e.memoryCandidates(qvec, match, semantic)
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{}
-	var hits []Hit
-	for _, vh := range vhits {
-		o, ok, err := e.DB.WorkOwner(vh.OwnerType, vh.OwnerID)
+	var out []MemoryDetail
+	for _, c := range cands {
+		if len(out) >= memoryDetailCap {
+			break
+		}
+		m, ok, err := e.DB.MemoryFull(c.id)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
 			continue
 		}
-		seen[workID(o.OwnerType, o.OwnerID)] = true
-		hits = append(hits, workHit(o, round(clamp01(1-vh.Distance)), "semantic match"))
-	}
-	// FTS union for un-embedded work items.
-	owned, err := e.DB.SearchWorkFTS(match, candidateCap)
-	if err != nil {
-		return nil, err
-	}
-	for _, o := range owned {
-		if !allow[o.OwnerType] || seen[workID(o.OwnerType, o.OwnerID)] {
-			continue
+		d := MemoryDetail{
+			ID: memID(m.ID), Kind: m.Kind, Title: m.Title, Body: m.Body,
+			Tags: m.Tags, Score: c.score, Why: c.why,
 		}
-		seen[workID(o.OwnerType, o.OwnerID)] = true
-		hits = append(hits, workHit(o, 0.6, o.OwnerType+" match"))
+		for _, l := range m.Links {
+			d.Links = append(d.Links, MemoryLink{TargetType: l.TargetType, TargetRef: l.TargetRef})
+		}
+		for _, ev := range m.Evidence {
+			d.Evidence = append(d.Evidence, MemoryEvidence{Path: ev.Path, LineStart: ev.LineStart, LineEnd: ev.LineEnd})
+		}
+		out = append(out, d)
 	}
-	return hits, nil
-}
-
-func memoryHit(m store.MemoryBrief, score float64, why string) Hit {
-	risk := "low"
-	if m.Kind == "failure" {
-		risk = "high"
-	}
-	return Hit{
-		Grain: "memory", Name: m.Title, SymbolKind: m.Kind,
-		Score: score, Why: why, RiskLevel: risk,
-		Memories: []MemoryRef{{ID: memID(m.ID), Kind: m.Kind, Title: m.Title}},
-	}
-}
-
-func workHit(o store.WorkOwner, score float64, why string) Hit {
-	return Hit{
-		Grain: o.OwnerType, ID: workID(o.OwnerType, o.OwnerID), Name: o.Title, SymbolKind: o.Status,
-		Score: score, Why: why, RiskLevel: "low",
-	}
+	return out, nil
 }
 
 // resolveLive fills in current line ranges and snippets by re-parsing the
@@ -697,7 +582,7 @@ func (e *Engine) resolveLive(hits []Hit, ctx int, snippets bool, maxLines int) {
 func (e *Engine) enrichGraph(hits []Hit, graph bool) error {
 	for i := range hits {
 		h := &hits[i]
-		if h.Grain == "memory" || h.Path == "" {
+		if h.Path == "" {
 			continue
 		}
 		file, ok, err := e.DB.FileByPath(h.Path)
@@ -740,15 +625,6 @@ func buildFTSMatch(tokens []string) string {
 		parts = append(parts, `"`+t+`"*`)
 	}
 	return strings.Join(parts, " OR ")
-}
-
-func hasFailure(mems []store.MemoryBrief) bool {
-	for _, m := range mems {
-		if m.Kind == "failure" {
-			return true
-		}
-	}
-	return false
 }
 
 func toMemoryRefs(mems []store.MemoryBrief) []MemoryRef {

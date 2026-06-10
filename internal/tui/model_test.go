@@ -25,34 +25,13 @@ func (f fakeDetailSource) Detail(string, int64) (string, error) { return f.detai
 
 func sampleSnap() Snapshot {
 	return Snapshot{
-		Branch: "main", Head: "abc1234", Files: 214, Symbols: 1883, Embeddings: 7, Edges: 642, Memories: 1,
-		MemCounts: map[string]int{"decision": 1},
-		Epics: []EpicRow{
-			{ID: 1, IDStr: "epic_001", Title: "Indexing core", Status: "in_progress", Done: 1, Total: 2},
-			{ID: 2, IDStr: "epic_002", Title: "Search ranking", Status: "todo", Done: 0, Total: 1},
+		Branch: "main", Head: "abc1234", Files: 214, Symbols: 1883, Embeddings: 7, Memories: 2,
+		MemCounts: map[string]int{"adr": 1, "plan": 1},
+		Mems: []MemRow{
+			{ID: "mem_001", Kind: "adr", Title: "use WAL"},
+			{ID: "mem_002", Kind: "plan", Title: "ship master search"},
 		},
-		Stories: []StoryRow{
-			{ID: 1, EpicID: 1, IDStr: "story_001", Title: "Parser coverage", Status: "in_progress"},
-			{ID: 2, EpicID: 2, IDStr: "story_002", Title: "Ranked search", Status: "todo"},
-		},
-		Tasks: []TaskRow{
-			{ID: 1, EpicID: 1, StoryID: 1, IDStr: "task_001", Title: "parse go", Status: "done"},
-			{ID: 2, EpicID: 1, StoryID: 1, IDStr: "task_002", Title: "symbol graph", Status: "todo"},
-			{ID: 3, EpicID: 2, StoryID: 2, IDStr: "task_003", Title: "rank cache", Status: "todo"},
-		},
-		Mems: []MemRow{{ID: "mem_001", Kind: "decision", Title: "use WAL"}},
-		Hubs: []HubRow{{Path: "internal/store/store.go", In: 5}},
 	}
-}
-
-func kanbanSnap() Snapshot {
-	s := sampleSnap()
-	s.Epics = []EpicRow{
-		{ID: 1, IDStr: "epic_001", Title: "First todo", Status: "todo"},
-		{ID: 2, IDStr: "epic_002", Title: "Active work", Status: "in_progress"},
-		{ID: 3, IDStr: "epic_003", Title: "Second todo", Status: "todo"},
-	}
-	return s
 }
 
 func ready(t *testing.T) Model {
@@ -67,17 +46,8 @@ func readyModel(t *testing.T, m Model) Model {
 	return next.(Model)
 }
 
-func readyWithSnap(t *testing.T, snap Snapshot) Model {
-	t.Helper()
-	m := New(fakeSource{snap})
-	next, _ := m.Update(tea.WindowSizeMsg{Width: 168, Height: 44})
-	next, _ = next.(Model).Update(snapshotMsg{snap: snap})
-	return next.(Model)
-}
-
 func runes(s string) tea.KeyPressMsg { return tea.KeyPressMsg{Code: []rune(s)[0], Text: s} }
 func ktype(c rune) tea.KeyPressMsg   { return tea.KeyPressMsg{Code: c} }
-func shiftTab() tea.KeyPressMsg      { return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift} }
 
 func TestQuitKeyOpensConfirmationModal(t *testing.T) {
 	m := ready(t)
@@ -136,46 +106,20 @@ func TestCtrlCStillReturnsQuitCommand(t *testing.T) {
 	}
 }
 
-func TestTabCyclesBetweenMainAndWorkViews(t *testing.T) {
-	m := ready(t)
-	if m.activeTab != tabMain {
-		t.Fatalf("initial tab = %v, want main", m.activeTab)
-	}
-	next, _ := m.Update(ktype(tea.KeyTab))
-	m = next.(Model)
-	if m.activeTab != tabWork {
-		t.Fatalf("tab moved to %v, want work", m.activeTab)
-	}
-	next, _ = m.Update(ktype(tea.KeyTab))
-	m = next.(Model)
-	if m.activeTab != tabMain {
-		t.Fatalf("second tab moved to %v, want main", m.activeTab)
-	}
-}
-
-func TestShiftTabCyclesBackward(t *testing.T) {
-	m := ready(t) // starts on main
-	next, _ := m.Update(shiftTab())
-	if tab := next.(Model).activeTab; tab != tabWork {
-		t.Fatalf("shift+tab from main = %v, want work (wrap back)", tab)
-	}
-}
-
-func TestEnterOpensDetailForMemoryAndWorkItems(t *testing.T) {
+func TestEnterOpensDetailForSelectedMemory(t *testing.T) {
 	m := ready(t)
 	md, _ := m.Update(ktype(tea.KeyEnter))
 	if mm := md.(Model); !mm.showDetail || !strings.Contains(mm.detailTitle, "mem_001") {
 		t.Fatalf("memory enter: showDetail=%v title=%q", mm.showDetail, mm.detailTitle)
 	}
+}
 
-	m = ready(t)
-	m = mustUpdate(m, ktype(tea.KeyTab)) // work tab, epics selected by default
-	if m.activeTab != tabWork || m.workKind != workEpics {
-		t.Fatalf("active work state = %v/%v, want work/epics", m.activeTab, m.workKind)
-	}
-	wd, _ := m.Update(ktype(tea.KeyEnter))
-	if wm := wd.(Model); !wm.showDetail || !strings.Contains(wm.detailTitle, "epic_001") {
-		t.Fatalf("work enter: showDetail=%v title=%q", wm.showDetail, wm.detailTitle)
+func TestDownMovesMemorySelection(t *testing.T) {
+	m := ready(t)
+	m = mustUpdate(m, ktype(tea.KeyDown))
+	md, _ := m.Update(ktype(tea.KeyEnter))
+	if mm := md.(Model); !mm.showDetail || !strings.Contains(mm.detailTitle, "mem_002") {
+		t.Fatalf("after down, enter should open mem_002: showDetail=%v title=%q", mm.showDetail, mm.detailTitle)
 	}
 }
 
@@ -185,106 +129,6 @@ func mustUpdate(m Model, msgs ...tea.Msg) Model {
 		m = next.(Model)
 	}
 	return m
-}
-
-func TestSnapshotPopulatesWorkItemsForKanban(t *testing.T) {
-	m := ready(t)
-	m = mustUpdate(m, ktype(tea.KeyTab))
-	items := m.workItems()
-	if len(items) != 2 || items[0].IDStr != "epic_001" {
-		t.Fatalf("epic workItems = %+v, want epic_001 first", items)
-	}
-}
-
-func TestWorkViewCyclesBetweenEpicsStoriesAndTasks(t *testing.T) {
-	m := ready(t)
-	m = mustUpdate(m, ktype(tea.KeyTab))
-	if m.workKind != workEpics {
-		t.Fatalf("initial work kind = %v, want epics", m.workKind)
-	}
-	m = mustUpdate(m, runes("]"))
-	if m.workKind != workStories {
-		t.Fatalf("] moved work kind = %v, want stories", m.workKind)
-	}
-	items := m.workItems()
-	if len(items) != 2 || items[0].IDStr != "story_001" {
-		t.Fatalf("story workItems = %+v, want story_001 first", items)
-	}
-	m = mustUpdate(m, runes("]"))
-	if m.workKind != workTasks {
-		t.Fatalf("second ] moved work kind = %v, want tasks", m.workKind)
-	}
-	items = m.workItems()
-	if len(items) != 3 || items[0].IDStr != "task_001" {
-		t.Fatalf("task workItems = %+v, want task_001 first", items)
-	}
-	m = mustUpdate(m, runes("["))
-	if m.workKind != workStories {
-		t.Fatalf("[ moved work kind = %v, want stories", m.workKind)
-	}
-}
-
-func TestWorkLeftRightMovesBetweenKanbanColumns(t *testing.T) {
-	m := readyWithSnap(t, kanbanSnap())
-	m = mustUpdate(m, ktype(tea.KeyTab))
-
-	m = mustUpdate(m, ktype(tea.KeyRight))
-	item, ok := m.selectedWorkItem()
-	if !ok || m.workKind != workEpics || item.IDStr != "epic_002" || item.Status != "in_progress" {
-		t.Fatalf("right should move to next kanban column without changing work type, got kind=%v item=%+v ok=%v", m.workKind, item, ok)
-	}
-
-	m = mustUpdate(m, ktype(tea.KeyLeft))
-	item, ok = m.selectedWorkItem()
-	if !ok || m.workKind != workEpics || item.IDStr != "epic_001" || item.Status != "todo" {
-		t.Fatalf("left should move back to previous kanban column without changing work type, got kind=%v item=%+v ok=%v", m.workKind, item, ok)
-	}
-}
-
-func TestWorkCursorMovesWithinCurrentKanbanColumn(t *testing.T) {
-	m := readyWithSnap(t, kanbanSnap())
-	m = mustUpdate(m, ktype(tea.KeyTab))
-
-	item, ok := m.selectedWorkItem()
-	if !ok || item.IDStr != "epic_001" || item.Status != "todo" {
-		t.Fatalf("initial selectedWorkItem = %+v, %v; want first todo epic", item, ok)
-	}
-
-	m = mustUpdate(m, ktype(tea.KeyDown))
-	item, ok = m.selectedWorkItem()
-	if !ok || item.IDStr != "epic_003" || item.Status != "todo" {
-		t.Fatalf("down should stay in todo column, got %+v, %v", item, ok)
-	}
-
-	m = mustUpdate(m, ktype(tea.KeyDown))
-	item, ok = m.selectedWorkItem()
-	if !ok || item.IDStr != "epic_001" || item.Status != "todo" {
-		t.Fatalf("down should wrap inside todo column, got %+v, %v", item, ok)
-	}
-
-	m = mustUpdate(m, ktype(tea.KeyUp))
-	item, ok = m.selectedWorkItem()
-	if !ok || item.IDStr != "epic_003" || item.Status != "todo" {
-		t.Fatalf("up should wrap inside todo column, got %+v, %v", item, ok)
-	}
-}
-
-func TestEnterOpensDetailForSelectedWorkItem(t *testing.T) {
-	m := readyWithSnap(t, kanbanSnap())
-	m = mustUpdate(m, ktype(tea.KeyTab), ktype(tea.KeyDown))
-	next, _ := m.Update(ktype(tea.KeyEnter))
-	nm := next.(Model)
-	if !nm.showDetail {
-		t.Fatal("enter did not open the detail pane")
-	}
-	if !strings.Contains(nm.detailTitle, "epic_003") {
-		t.Fatalf("detail title = %q, want epic_003", nm.detailTitle)
-	}
-	// esc closes it.
-	back, _ := nm.Update(ktype(tea.KeyEscape))
-	if back.(Model).showDetail {
-		t.Fatal("esc did not close the detail pane")
-	}
 }
 
 func TestSearchKeyOpensForm(t *testing.T) {
@@ -569,7 +413,7 @@ func TestRefreshKeyEntersLoadingState(t *testing.T) {
 func TestMainMemoryTableShowsSelectionHighlight(t *testing.T) {
 	const borderBgSeq = "48;2;167;139;250" // active panel border (#a78bfa) rendered as an ANSI background
 	m := ready(t)
-	for _, line := range strings.Split(m.mainView(), "\n") {
+	for _, line := range strings.Split(m.bodyView(), "\n") {
 		if strings.Contains(line, "use WAL") {
 			if !strings.Contains(line, borderBgSeq) {
 				t.Fatalf("selected memory row should use the border color as its row background:\n%s", line)
@@ -577,7 +421,7 @@ func TestMainMemoryTableShowsSelectionHighlight(t *testing.T) {
 			return
 		}
 	}
-	t.Fatalf("selected memory row not found:\n%s", m.mainView())
+	t.Fatalf("selected memory row not found:\n%s", m.bodyView())
 }
 
 func TestSearchInProgressShowsHeaderFeedback(t *testing.T) {
@@ -594,97 +438,36 @@ func TestSearchInProgressShowsHeaderFeedback(t *testing.T) {
 	}
 }
 
-func TestHeaderRendersTabsWithActiveBackgroundAndBranchOnRight(t *testing.T) {
-	const activeTabBgSeq = "48;2;167;139;250" // cViolet as an ANSI background
+func TestHeaderHasNoTabsAndShowsBranchOnRight(t *testing.T) {
 	m := ready(t)
 
 	header := m.headerView()
 	firstLine := strings.Split(header, "\n")[0]
 	clean := ansi.Strip(firstLine)
-	for _, want := range []string{"Columbus", "MAIN", "WORK", "branch:main"} {
+	for _, want := range []string{"Columbus", "branch:main"} {
 		if !strings.Contains(clean, want) {
 			t.Fatalf("header missing %q:\n%s", want, clean)
 		}
 	}
-	if strings.Index(clean, "branch:main") < strings.Index(clean, "WORK") {
-		t.Fatalf("branch should be on the right side after the tabs:\n%s", clean)
-	}
-	if !strings.Contains(firstLine, activeTabBgSeq) {
-		t.Fatalf("active tab should use a visible background:\n%q", firstLine)
-	}
-}
-
-func TestTabsDoNotRenderAsASeparateRow(t *testing.T) {
-	m := ready(t)
-	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
-	if len(lines) < 3 {
-		t.Fatalf("view too short:\n%s", m.View().Content)
-	}
-	afterHeader := strings.TrimSpace(lines[2])
-	if strings.Contains(afterHeader, "MAIN") || strings.Contains(afterHeader, "WORK") {
-		t.Fatalf("tabs should be in the header, not a standalone row:\n%s", afterHeader)
-	}
-	if !strings.HasPrefix(afterHeader, "╭") {
-		t.Fatalf("cards should start immediately after the header separator, got:\n%s", afterHeader)
+	for _, notWant := range []string{"MAIN", "WORK"} {
+		if strings.Contains(clean, notWant) {
+			t.Fatalf("header should not render tab %q:\n%s", notWant, clean)
+		}
 	}
 }
 
 func TestMainViewRendersMetricCardsAndFullMemoryPanel(t *testing.T) {
 	m := ready(t)
 	out := ansi.Strip(m.View().Content)
-	for _, want := range []string{"MAIN", "WORK", "EMBEDDINGS", "7", "EPICS", "2 active", "STORIES", "2", "TASKS", "2 open", "MEMORY"} {
+	for _, want := range []string{"FILES INDEXED", "SYMBOLS", "EMBEDDINGS", "7", "MEMORIES", "1 adr", "1 plan", "MEMORY"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("main view missing %q:\n%s", want, out)
 		}
 	}
-	for _, notWant := range []string{"GRAPH EDGES"} {
+	for _, notWant := range []string{"EPICS", "STORIES", "TASKS", "GRAPH EDGES"} {
 		if strings.Contains(out, notWant) {
 			t.Fatalf("main view should not render %q:\n%s", notWant, out)
 		}
-	}
-}
-
-func TestWorkViewRendersKanbanColumns(t *testing.T) {
-	m := ready(t)
-	m = mustUpdate(m, ktype(tea.KeyTab))
-	out := ansi.Strip(m.View().Content)
-	for _, want := range []string{"WORK", "EPICS", "TODO", "IN PROGRESS", "Indexing core", "Search ranking"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("work kanban missing %q:\n%s", want, out)
-		}
-	}
-	for _, notWant := range []string{"epic_001", "epic_002"} {
-		if strings.Contains(out, notWant) {
-			t.Fatalf("work kanban card should not render id %q:\n%s", notWant, out)
-		}
-	}
-}
-
-func TestKanbanCardsRenderOnlyTitle(t *testing.T) {
-	title := "Confirm quit before closing with a focused modal"
-	lines := kanbanCardLines(40, workItem{
-		Kind: "task", IDStr: "task_001", Title: title, Meta: "story_001",
-	}, false)
-	out := ansi.Strip(strings.Join(lines, "\n"))
-	if got := strings.Join(strings.Fields(out), " "); got != title {
-		t.Fatalf("kanban card title = %q, want full title %q", got, title)
-	}
-	for _, notWant := range []string{"task_001", "story_001"} {
-		if strings.Contains(out, notWant) {
-			t.Fatalf("kanban card should not render id %q: %q", notWant, out)
-		}
-	}
-	if !strings.Contains(out, "Confirm quit before closing") {
-		t.Fatalf("kanban card missing title: %q", out)
-	}
-}
-
-func TestKanbanSelectionUsesActiveBorderColor(t *testing.T) {
-	const activeBorderBgSeq = "48;2;167;139;250" // active panel border (#a78bfa) rendered as an ANSI background
-	lines := kanbanCardLines(40, workItem{Kind: "epic", IDStr: "epic_001", Title: "Indexing core"}, true)
-	out := strings.Join(lines, "\n")
-	if !strings.Contains(out, activeBorderBgSeq) {
-		t.Fatalf("selected kanban card should use active border color as background:\n%s", out)
 	}
 }
 
@@ -705,13 +488,13 @@ func TestDimsAndViewSurviveTinyTerminals(t *testing.T) {
 
 func TestFooterHelpIsContextual(t *testing.T) {
 	m := ready(t)
-	if !strings.Contains(m.footerView(), "next view") {
-		t.Fatal("dashboard footer should advertise tab navigation")
+	if !strings.Contains(m.footerView(), "detail") {
+		t.Fatal("dashboard footer should advertise the enter/detail key")
 	}
 	sm := mustUpdate(m, runes("/"))
 	f := sm.footerView()
-	if strings.Contains(f, "next view") {
-		t.Fatalf("search footer should not show dashboard pane keys:\n%s", f)
+	if strings.Contains(f, "reindex") {
+		t.Fatalf("search footer should not show dashboard keys:\n%s", f)
 	}
 	if !strings.Contains(f, "cancel") {
 		t.Fatalf("search footer should show its own keys:\n%s", f)
@@ -741,7 +524,7 @@ func TestViewRendersDashboardAcrossSizes(t *testing.T) {
 		next, _ := m.Update(sz)
 		next, _ = next.(Model).Update(snapshotMsg{snap: sampleSnap()})
 		out := next.(Model).View().Content
-		if !strings.Contains(out, "Columbus") || !strings.Contains(out, "MEMORY") || !strings.Contains(out, "STORIES") {
+		if !strings.Contains(out, "Columbus") || !strings.Contains(out, "MEMORY") || !strings.Contains(out, "EMBEDDINGS") {
 			t.Fatalf("View at %dx%d missing expected chrome", sz.Width, sz.Height)
 		}
 	}

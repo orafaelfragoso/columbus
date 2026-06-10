@@ -199,6 +199,84 @@ func TestMigrate0005RebuildsVectorLayerForPotion(t *testing.T) {
 	}
 }
 
+// TestMigrate0006DropsWorkAndWipesMemories builds a v5 DB seeded with work
+// rows and a memory, then opens it and verifies 0006 drops the work tables,
+// wipes memories (clean slate for the new kind model) and resets mem_seq.
+func TestMigrate0006DropsWorkAndWipesMemories(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "columbus.sqlite")
+	raw, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	migs, err := loadMigrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	for _, m := range migs {
+		if m.version <= 5 {
+			if err := applyMigration(raw, m); err != nil {
+				t.Fatalf("apply %s: %v", m.name, err)
+			}
+		}
+	}
+	seed := []string{
+		`INSERT INTO epics (id, title, body, status, created_at, updated_at) VALUES (1, 'e', '', 'todo', 't', 't')`,
+		`INSERT INTO stories (id, epic_id, title, body, status, created_at, updated_at) VALUES (1, 1, 's', '', 'todo', 't', 't')`,
+		`INSERT INTO tasks (id, epic_id, story_id, title, body, status, created_at, updated_at) VALUES (1, 1, 1, 'tk', '', 'todo', 't', 't')`,
+		`INSERT INTO memories (id, kind, title, body, created_at, updated_at) VALUES (1, 'decision', 'old', '', 't', 't')`,
+		`INSERT INTO memory_tags (memory_id, tag) VALUES (1, 'x')`,
+		`UPDATE index_meta SET mem_seq = 1, epic_seq = 1, story_seq = 1, task_seq = 1 WHERE id = 1`,
+		`INSERT INTO chunk_meta (rowid, owner_type, owner_id, model, content_sha) VALUES (1, 'memory', 1, 'm', 's')`,
+		`INSERT INTO chunk_meta (rowid, owner_type, owner_id, model, content_sha) VALUES (2, 'epic', 1, 'm', 's')`,
+		`INSERT INTO chunk_meta (rowid, owner_type, owner_id, model, content_sha) VALUES (3, 'symbol', 1, 'm', 's')`,
+	}
+	for _, q := range seed {
+		if _, err := raw.Exec(q); err != nil {
+			t.Fatalf("seed %q: %v", q, err)
+		}
+	}
+	raw.Close()
+
+	db, err := Open(path) // applies 0006
+	if err != nil {
+		t.Fatalf("Open over v5 DB: %v", err)
+	}
+	defer db.Close()
+
+	for _, tbl := range []string{"epics", "stories", "tasks", "work_tags", "work_events", "work_refs", "work_fts"} {
+		var n int
+		err := db.SQL().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table','view') AND name = ?`, tbl).Scan(&n)
+		if err != nil {
+			t.Fatalf("sqlite_master %s: %v", tbl, err)
+		}
+		if n != 0 {
+			t.Errorf("table %s still exists after 0006", tbl)
+		}
+	}
+	var mems int
+	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM memories`).Scan(&mems); err != nil {
+		t.Fatalf("count memories: %v", err)
+	}
+	if mems != 0 {
+		t.Errorf("memories after wipe = %d, want 0", mems)
+	}
+	meta, err := db.Meta().Get()
+	if err != nil {
+		t.Fatalf("meta get: %v", err)
+	}
+	if meta.MemSeq != 0 {
+		t.Errorf("mem_seq = %d, want 0 (reset)", meta.MemSeq)
+	}
+	// Only the symbol-owned vector row survives.
+	var chunks int
+	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM chunk_meta`).Scan(&chunks); err != nil {
+		t.Fatalf("count chunk_meta: %v", err)
+	}
+	if chunks != 1 {
+		t.Errorf("chunk_meta rows = %d, want 1 (symbol only)", chunks)
+	}
+}
+
 func TestFTS5IsAvailable(t *testing.T) {
 	db := openTemp(t)
 	_, err := db.SQL().Exec(`INSERT INTO code_fts (name, signature, path, package, grain, ref_id)
@@ -287,7 +365,7 @@ func TestTxMemoryExistsReadsInsideTransaction(t *testing.T) {
 	// SetMaxOpenConns(1) a pool read here would block until busy_timeout and
 	// fail; the tx-scoped read both avoids that and sees uncommitted writes.
 	err := db.WithTx(func(tx *Tx) error {
-		if err := tx.InsertMemory(1, "decision", "t", "b", "now", "now"); err != nil {
+		if err := tx.InsertMemory(1, "adr", "t", "b", "now", "now"); err != nil {
 			return err
 		}
 		exists, err := tx.MemoryExists(1)

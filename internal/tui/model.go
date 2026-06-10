@@ -17,23 +17,6 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-type viewTab int
-
-const (
-	tabMain viewTab = iota
-	tabWork
-	tabCount
-)
-
-type workKind int
-
-const (
-	workEpics workKind = iota
-	workStories
-	workTasks
-	workKindCount
-)
-
 // snapshotMsg carries the result of an async Source.Load.
 type snapshotMsg struct {
 	snap Snapshot
@@ -61,7 +44,7 @@ func WithReindex(fn func() error) Option {
 	return func(m *Model) { m.reindex = fn }
 }
 
-// WithSearch wires the `/` key to a global search across code, memory and work.
+// WithSearch wires the `/` key to a global search across code and memory.
 // Nil (the default) makes `/` a no-op.
 func WithSearch(fn func(string) ([]SearchHit, error)) Option {
 	return func(m *Model) { m.searchFn = fn }
@@ -92,16 +75,6 @@ func (h hitItem) Description() string {
 }
 func (h hitItem) FilterValue() string { return h.hit.Title }
 
-type workItem struct {
-	Kind    string
-	ID      int64
-	IDStr   string
-	Title   string
-	Status  string
-	Meta    string
-	Percent float64
-}
-
 // Model is the root dashboard model. All logic lives in Update and the pure
 // rebuild/dims helpers; View is a thin renderer (so it stays testable).
 type Model struct {
@@ -109,11 +82,8 @@ type Model struct {
 	snap Snapshot
 	err  error
 
-	w, h       int
-	activeTab  viewTab
-	workKind   workKind
-	workCursor int
-	loading    bool
+	w, h    int
+	loading bool
 
 	keys keyMap
 	help help.Model
@@ -419,38 +389,13 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	switch {
-	case key.Matches(msg, m.keys.Tab):
-		m.cycleTab(1)
-		return m, nil
-	case key.Matches(msg, m.keys.ShiftTab):
-		m.cycleTab(-1)
-		return m, nil
-	case key.Matches(msg, m.keys.Enter):
+	if key.Matches(msg, m.keys.Enter) {
 		m.openDetail()
 		return m, nil
 	}
 
 	var cmd tea.Cmd
-	switch m.activeTab {
-	case tabMain:
-		m.mem, cmd = m.mem.Update(msg)
-	case tabWork:
-		switch {
-		case key.Matches(msg, m.keys.WorkPrev):
-			m.cycleWorkKind(-1)
-		case key.Matches(msg, m.keys.WorkNext):
-			m.cycleWorkKind(1)
-		case key.Matches(msg, m.keys.Left):
-			m.moveWorkColumn(-1)
-		case key.Matches(msg, m.keys.Right):
-			m.moveWorkColumn(1)
-		case key.Matches(msg, m.keys.Up):
-			m.moveWorkCursor(-1)
-		case key.Matches(msg, m.keys.Down):
-			m.moveWorkCursor(1)
-		}
-	}
+	m.mem, cmd = m.mem.Update(msg)
 	return m, cmd
 }
 
@@ -458,103 +403,9 @@ func isCtrlC(msg tea.KeyPressMsg) bool {
 	return msg.Code == 'c' && msg.Mod == tea.ModCtrl
 }
 
-func (m *Model) cycleTab(dir int) {
-	m.activeTab = viewTab((int(m.activeTab) + dir + int(tabCount)) % int(tabCount))
-	m.applyFocus()
-}
-
 func (m *Model) applyFocus() {
-	m.mem.Blur()
-	m.mem.SetStyles(tableStyles(false))
-	if m.activeTab == tabMain {
-		m.mem.Focus()
-		m.mem.SetStyles(tableStyles(true))
-	}
-	m.workCursor = clampCursor(m.workCursor, len(m.workItems()))
-}
-
-func (m *Model) cycleWorkKind(dir int) {
-	m.workKind = workKind((int(m.workKind) + dir + int(workKindCount)) % int(workKindCount))
-	m.workCursor = clampCursor(0, len(m.workItems()))
-}
-
-func (m *Model) moveWorkCursor(dir int) {
-	items := m.workItems()
-	if len(items) == 0 {
-		m.workCursor = 0
-		return
-	}
-
-	m.workCursor = clampCursor(m.workCursor, len(items))
-	status := items[m.workCursor].Status
-	indices := make([]int, 0, len(items))
-	current := 0
-	for i, item := range items {
-		if item.Status != status {
-			continue
-		}
-		if i == m.workCursor {
-			current = len(indices)
-		}
-		indices = append(indices, i)
-	}
-	if len(indices) == 0 {
-		return
-	}
-	next := (current + dir + len(indices)) % len(indices)
-	m.workCursor = indices[next]
-}
-
-func (m *Model) moveWorkColumn(dir int) {
-	items := m.workItems()
-	if len(items) == 0 {
-		m.workCursor = 0
-		return
-	}
-
-	m.workCursor = clampCursor(m.workCursor, len(items))
-	statuses := kanbanStatuses()
-	currentStatus := items[m.workCursor].Status
-	currentStatusIdx := -1
-	for i, status := range statuses {
-		if status == currentStatus {
-			currentStatusIdx = i
-			break
-		}
-	}
-	if currentStatusIdx < 0 {
-		return
-	}
-
-	row := 0
-	for i := 0; i < m.workCursor; i++ {
-		if items[i].Status == currentStatus {
-			row++
-		}
-	}
-
-	for step := 1; step <= len(statuses); step++ {
-		nextStatusIdx := (currentStatusIdx + dir*step) % len(statuses)
-		if nextStatusIdx < 0 {
-			nextStatusIdx += len(statuses)
-		}
-		indices := workIndicesByStatus(items, statuses[nextStatusIdx])
-		if len(indices) == 0 {
-			continue
-		}
-		m.workCursor = indices[min(row, len(indices)-1)]
-		return
-	}
-}
-
-func workIndicesByStatus(items []workItem, status string) []int {
-	indices := make([]int, 0, len(items))
-	for i, item := range items {
-		if item.Status == status {
-			indices = append(indices, i)
-		}
-	}
-	return indices
+	m.mem.Focus()
+	m.mem.SetStyles(tableStyles(true))
 }
 
 func (m *Model) openSearch() tea.Cmd {
@@ -571,24 +422,12 @@ func (m *Model) openHitDetail() {
 		return
 	}
 	h := it.hit
-	var kind, md string
+	var kind string
 	var id int64
-	switch h.Grain {
-	case "memory":
+	if h.Grain == "memory" {
 		kind, id = "memory", idNum(h.ID)
-		md = hitMarkdown(h)
-	case "epic":
-		kind, id = "epic", idNum(h.ID)
-		md = hitMarkdown(h)
-	case "story":
-		kind, id = "story", idNum(h.ID)
-		md = hitMarkdown(h)
-	case "task":
-		kind, id = "task", idNum(h.ID)
-		md = hitMarkdown(h)
-	default:
-		md = hitMarkdown(h)
 	}
+	md := hitMarkdown(h)
 	m.detailTitle = h.Title
 	m.setDetail(kind, id, md)
 	m.showResults = false
@@ -620,40 +459,12 @@ func rankString(score float64) string {
 }
 
 func (m *Model) openDetail() {
-	var kind, md string
-	var id int64
-	switch m.activeTab {
-	case tabMain:
-		mr, ok := m.selectedMem()
-		if !ok {
-			return
-		}
-		kind, id = "memory", idNum(mr.ID)
-		m.detailTitle = mr.ID + "  ·  " + mr.Title
-		md = memMarkdown(mr)
-	case tabWork:
-		item, ok := m.selectedWorkItem()
-		if !ok {
-			return
-		}
-		kind, id = item.Kind, item.ID
-		m.detailTitle = item.IDStr + "  ·  " + item.Title
-		switch item.Kind {
-		case "epic":
-			if e, ok := m.epicByID(item.ID); ok {
-				md = epicMarkdown(e, m.snap)
-			}
-		case "story":
-			if st, ok := m.storyByID(item.ID); ok {
-				md = storyMarkdown(st, m.snap)
-			}
-		case "task":
-			if t, ok := m.taskByID(item.ID); ok {
-				md = taskMarkdown(t, m.snap)
-			}
-		}
+	mr, ok := m.selectedMem()
+	if !ok {
+		return
 	}
-	m.setDetail(kind, id, md)
+	m.detailTitle = mr.ID + "  ·  " + mr.Title
+	m.setDetail("memory", idNum(mr.ID), memMarkdown(mr))
 	m.showDetail = true
 	m.detailFromResults = false
 }
@@ -685,107 +496,6 @@ func (m Model) selectedMem() (MemRow, bool) {
 		return MemRow{}, false
 	}
 	return m.snap.Mems[i], true
-}
-
-func (m Model) selectedWorkItem() (workItem, bool) {
-	items := m.workItems()
-	if m.workCursor < 0 || m.workCursor >= len(items) {
-		return workItem{}, false
-	}
-	return items[m.workCursor], true
-}
-
-func (m Model) workItems() []workItem {
-	switch m.workKind {
-	case workEpics:
-		items := make([]workItem, 0, len(m.snap.Epics))
-		for _, e := range m.snap.Epics {
-			items = append(items, workItem{
-				Kind: "epic", ID: e.ID, IDStr: e.IDStr, Title: e.Title, Status: e.Status,
-				Meta:    strconv.Itoa(e.Done) + "/" + strconv.Itoa(e.Total) + " tasks",
-				Percent: e.Progress(),
-			})
-		}
-		return items
-	case workStories:
-		items := make([]workItem, 0, len(m.snap.Stories))
-		for _, st := range m.snap.Stories {
-			items = append(items, workItem{
-				Kind: "story", ID: st.ID, IDStr: st.IDStr, Title: st.Title, Status: st.Status,
-				Meta: m.epicLabel(st.EpicID),
-			})
-		}
-		return items
-	case workTasks:
-		items := make([]workItem, 0, len(m.snap.Tasks))
-		for _, t := range m.snap.Tasks {
-			items = append(items, workItem{
-				Kind: "task", ID: t.ID, IDStr: t.IDStr, Title: t.Title, Status: t.Status,
-				Meta: m.storyLabel(t.StoryID),
-			})
-		}
-		return items
-	default:
-		return nil
-	}
-}
-
-func (m Model) epicByID(id int64) (EpicRow, bool) {
-	for _, e := range m.snap.Epics {
-		if e.ID == id {
-			return e, true
-		}
-	}
-	return EpicRow{}, false
-}
-
-func (m Model) storyByID(id int64) (StoryRow, bool) {
-	for _, st := range m.snap.Stories {
-		if st.ID == id {
-			return st, true
-		}
-	}
-	return StoryRow{}, false
-}
-
-func (m Model) taskByID(id int64) (TaskRow, bool) {
-	for _, t := range m.snap.Tasks {
-		if t.ID == id {
-			return t, true
-		}
-	}
-	return TaskRow{}, false
-}
-
-func (m Model) epicLabel(id int64) string {
-	for _, e := range m.snap.Epics {
-		if e.ID == id {
-			return e.IDStr
-		}
-	}
-	return "epic_" + padID(id)
-}
-
-func (m Model) storyLabel(id int64) string {
-	for _, st := range m.snap.Stories {
-		if st.ID == id {
-			return st.IDStr
-		}
-	}
-	return "story_" + padID(id)
-}
-
-func padID(id int64) string {
-	if id < 0 {
-		id = 0
-	}
-	if id < 10 {
-		return "00" + strconv.FormatInt(id, 10)
-	}
-	if id < 100 {
-		return "0" + strconv.FormatInt(id, 10)
-	}
-	return strconv.FormatInt(id, 10)
 }
 
 // idNum extracts the trailing numeric id from a prefixed id like "mem_012".

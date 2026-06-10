@@ -33,6 +33,19 @@ func (t *Tx) UpdateMemory(id int64, kind, title, body, updatedAt string) error {
 	return storeErr(err)
 }
 
+// deleteOwnerVectors drops the vec_chunks/chunk_meta rows for one polymorphic
+// owner (every model), keeping the semantic layer in step with deletes.
+func (t *Tx) deleteOwnerVectors(ownerType string, ownerID int64) error {
+	if _, err := t.tx.Exec(
+		`DELETE FROM vec_chunks WHERE rowid IN (
+			SELECT rowid FROM chunk_meta WHERE owner_type = ? AND owner_id = ?)`,
+		ownerType, ownerID); err != nil {
+		return storeErr(err)
+	}
+	_, err := t.tx.Exec(`DELETE FROM chunk_meta WHERE owner_type = ? AND owner_id = ?`, ownerType, ownerID)
+	return storeErr(err)
+}
+
 // DeleteMemory hard-deletes a memory; cascades drop tags/evidence/links. The
 // FTS row must be removed separately (virtual table, no FK).
 func (t *Tx) DeleteMemory(id int64) error {

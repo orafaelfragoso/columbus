@@ -1,9 +1,7 @@
 // Package memory owns the durable project memory: records, evidence, links,
-// tags, validation and drift detection. Most memories are timeless; only their
+// tags, validation and drift detection. Memories are timeless; only their
 // evidence and links carry git anchors used to detect drift (always a warning,
-// never a hard invalid). The "backlog" kind is the deliberate exception: a
-// transient, scrum-style work item parked for later review and removed once
-// triage turns it into epic/story/task work, not kept forever.
+// never a hard invalid).
 package memory
 
 import (
@@ -20,11 +18,10 @@ import (
 	"github.com/orafaelfragoso/columbus/internal/store"
 )
 
-// Kinds is the fixed memory-kind enum. "backlog" is a transient, scrum-style
-// work item (a documented gap or piece of work, recorded instead of abusing
-// "failure"): parked for later review by triage and deleted once it becomes
-// epic/story/task work. The rest are durable.
-var Kinds = []string{"decision", "pattern", "failure", "command", "glossary", "backlog"}
+// Kinds is the fixed memory-kind enum: "adr" records an architecture
+// decision, "plan" a durable implementation plan, "documentation" everything
+// else worth remembering about the project.
+var Kinds = []string{"adr", "plan", "documentation"}
 
 func validKind(k string) bool {
 	for _, v := range Kinds {

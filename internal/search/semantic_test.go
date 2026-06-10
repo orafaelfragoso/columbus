@@ -253,30 +253,26 @@ func TestLimitDefaultFifteen(t *testing.T) {
 	}
 }
 
-// TestSemanticFindsStory: a story embedded at index time surfaces in semantic
-// search by meaning (owner_type=story).
-func TestSemanticFindsStory(t *testing.T) {
+// TestSemanticFindsMemoryWithFullBody: a memory embedded at index time
+// surfaces in the search's memories section with its full body.
+func TestSemanticFindsMemoryWithFullBody(t *testing.T) {
 	e := buildSemanticEngine(t, map[string]string{"svc.go": "package svc\n\nfunc New() {}\n"})
 
-	// Create an epic > story; the story body is about auth.
-	var epicID, storyID int64
+	// Create a memory whose body is about auth.
 	if err := e.DB.WithTx(func(tx *store.Tx) error {
-		var err error
-		if epicID, err = tx.NextEpicSeq(); err != nil {
+		id, err := tx.NextMemSeq()
+		if err != nil {
 			return err
 		}
-		if err = tx.InsertEpic(epicID, "Access control", "", "todo", "t", "t"); err != nil {
+		if err := tx.InsertMemory(id, "adr", "Token checks", "validate the auth token on each request", "t", "t"); err != nil {
 			return err
 		}
-		if storyID, err = tx.NextStorySeq(); err != nil {
-			return err
-		}
-		return tx.InsertStory(storyID, epicID, "Token checks", "validate the auth token on each request", "todo", "t", "t")
+		return tx.ReindexMemoryFTS(id, "Token checks", "validate the auth token on each request", nil)
 	}); err != nil {
-		t.Fatalf("seed work: %v", err)
+		t.Fatalf("seed memory: %v", err)
 	}
 
-	// Re-index to embed the new story (work items embed at index time).
+	// Re-index to embed the new memory (memories embed at index time).
 	ix := &index.Indexer{
 		DB: e.DB, Registry: e.Registry, WorkDir: e.WorkDir,
 		Clock:       clock.Fixed{T: time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC)},
@@ -293,13 +289,19 @@ func TestSemanticFindsStory(t *testing.T) {
 		t.Fatalf("Search: %v", err)
 	}
 	found := false
-	for _, h := range res.Hits {
-		if h.Grain == "story" && h.ID == "story_001" {
+	for _, m := range res.Memories {
+		if m.ID == "mem_001" {
 			found = true
+			if m.Body != "validate the auth token on each request" {
+				t.Errorf("memory body = %q, want full body", m.Body)
+			}
+			if m.Kind != "adr" {
+				t.Errorf("memory kind = %q, want adr", m.Kind)
+			}
 		}
 	}
 	if !found {
-		t.Errorf("story not found via semantic search; hits=%+v", res.Hits)
+		t.Errorf("memory not found in memories section; memories=%+v", res.Memories)
 	}
 }
 

@@ -34,34 +34,15 @@ func selectionStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(cTrack).Background(cViolet).Bold(true)
 }
 
-func statusColor(s string) color.Color {
-	switch s {
-	case "done":
-		return cGreen
-	case "in_progress":
-		return cBlue
-	case "blocked":
-		return cRed
-	case "todo":
-		return cYellow
-	default:
-		return cMuted
-	}
-}
-
 func kindColor(k string) color.Color {
 	switch k {
-	case "decision":
+	case "adr":
 		return cViolet
-	case "pattern":
+	case "plan":
 		return cCyan
-	case "failure":
-		return cRed
-	case "backlog":
-		return cYellow
-	case "command":
+	case "documentation":
 		return cBlue
-	default: // glossary
+	default:
 		return cMuted
 	}
 }

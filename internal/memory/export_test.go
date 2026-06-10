@@ -4,8 +4,8 @@ import "testing"
 
 func TestExportRoundTripReassignsAndDedupes(t *testing.T) {
 	src, _ := newManager(t, nil)
-	src.Add(AddParams{Kind: "decision", Title: "A", Body: "alpha", Tags: []string{"x"}})
-	src.Add(AddParams{Kind: "pattern", Title: "B", Body: "beta"})
+	src.Add(AddParams{Kind: "adr", Title: "A", Body: "alpha", Tags: []string{"x"}})
+	src.Add(AddParams{Kind: "plan", Title: "B", Body: "beta"})
 
 	doc, err := src.Export("", "")
 	if err != nil {
@@ -42,12 +42,12 @@ func TestExportRoundTripReassignsAndDedupes(t *testing.T) {
 
 func TestImportReassignsIDsByDefault(t *testing.T) {
 	src, _ := newManager(t, nil)
-	src.Add(AddParams{Kind: "decision", Title: "only"})
+	src.Add(AddParams{Kind: "adr", Title: "only"})
 	doc, _ := src.Export("", "")
 
 	dst, _ := newManager(t, nil)
 	// Pre-existing memory in destination occupies mem_001.
-	dst.Add(AddParams{Kind: "pattern", Title: "preexisting"})
+	dst.Add(AddParams{Kind: "plan", Title: "preexisting"})
 
 	if _, err := dst.Import(doc, false); err != nil {
 		t.Fatalf("Import: %v", err)
@@ -68,8 +68,8 @@ func TestImportReassignsIDsByDefault(t *testing.T) {
 
 func TestImportPreserveIDsIntoEmptyStore(t *testing.T) {
 	src, _ := newManager(t, nil)
-	src.Add(AddParams{Kind: "decision", Title: "one"})
-	src.Add(AddParams{Kind: "decision", Title: "two"})
+	src.Add(AddParams{Kind: "adr", Title: "one"})
+	src.Add(AddParams{Kind: "adr", Title: "two"})
 	doc, _ := src.Export("", "")
 
 	dst, _ := newManager(t, nil)
@@ -85,19 +85,29 @@ func TestImportPreserveIDsIntoEmptyStore(t *testing.T) {
 		t.Errorf("mem_001 should be restored as 'one', got ok=%v %q", ok, full.Title)
 	}
 	// Counter must advance past restored ids so the next add gets mem_003.
-	r, _ := dst.Add(AddParams{Kind: "pattern", Title: "next"})
+	r, _ := dst.Add(AddParams{Kind: "plan", Title: "next"})
 	if r.ID != "mem_003" {
 		t.Errorf("next id = %s, want mem_003", r.ID)
 	}
 }
 
+func TestImportRejectsOtherSchemaVersions(t *testing.T) {
+	dst, _ := newManager(t, nil)
+	for _, v := range []int{0, 1, 2, 3, ExportSchemaVersion + 1} {
+		_, err := dst.Import(ExportDoc{SchemaVersion: v, Memories: []ExportRecord{{ID: "mem_001", Kind: "adr", Title: "x"}}}, false)
+		if err == nil {
+			t.Fatalf("schema v%d should be rejected (only v%d is supported)", v, ExportSchemaVersion)
+		}
+	}
+}
+
 func TestImportPreserveIDsCollisionErrors(t *testing.T) {
 	src, _ := newManager(t, nil)
-	src.Add(AddParams{Kind: "decision", Title: "one"})
+	src.Add(AddParams{Kind: "adr", Title: "one"})
 	doc, _ := src.Export("", "")
 
 	dst, _ := newManager(t, nil)
-	dst.Add(AddParams{Kind: "pattern", Title: "occupies mem_001"})
+	dst.Add(AddParams{Kind: "plan", Title: "occupies mem_001"})
 
 	_, err := dst.Import(doc, true)
 	if err == nil {

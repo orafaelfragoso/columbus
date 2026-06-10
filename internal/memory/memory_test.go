@@ -59,11 +59,11 @@ func assertCode(t *testing.T, err error, want contract.Code) {
 
 func TestAddAssignsMonotonicIDs(t *testing.T) {
 	m, _ := newManager(t, map[string]string{"a.go": "package a\n"})
-	r1, err := m.Add(AddParams{Kind: "decision", Title: "first"})
+	r1, err := m.Add(AddParams{Kind: "adr", Title: "first"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	r2, _ := m.Add(AddParams{Kind: "pattern", Title: "second"})
+	r2, _ := m.Add(AddParams{Kind: "plan", Title: "second"})
 	if r1.ID != "mem_001" || r2.ID != "mem_002" {
 		t.Errorf("ids = %s, %s; want mem_001, mem_002", r1.ID, r2.ID)
 	}
@@ -77,17 +77,17 @@ func TestAddRejectsUnknownKind(t *testing.T) {
 
 func TestAddRequiresTitle(t *testing.T) {
 	m, _ := newManager(t, nil)
-	_, err := m.Add(AddParams{Kind: "decision"})
+	_, err := m.Add(AddParams{Kind: "adr"})
 	assertCode(t, err, contract.CodeUsage)
 }
 
 func TestRemovedIDsAreNotReused(t *testing.T) {
 	m, _ := newManager(t, nil)
-	r1, _ := m.Add(AddParams{Kind: "decision", Title: "first"})
+	r1, _ := m.Add(AddParams{Kind: "adr", Title: "first"})
 	if _, err := m.Remove(r1.ID); err != nil {
 		t.Fatal(err)
 	}
-	r2, _ := m.Add(AddParams{Kind: "decision", Title: "second"})
+	r2, _ := m.Add(AddParams{Kind: "adr", Title: "second"})
 	if r2.ID == r1.ID {
 		t.Errorf("id %s was reused after deletion", r2.ID)
 	}
@@ -98,7 +98,7 @@ func TestRemovedIDsAreNotReused(t *testing.T) {
 
 func TestUnresolvedLinkIsWarningNotError(t *testing.T) {
 	m, _ := newManager(t, map[string]string{"a.go": "package a\n"})
-	r, err := m.Add(AddParams{Kind: "decision", Title: "x", Links: []LinkSpec{{Type: "file", Ref: "does/not/exist.go"}}})
+	r, err := m.Add(AddParams{Kind: "adr", Title: "x", Links: []LinkSpec{{Type: "file", Ref: "does/not/exist.go"}}})
 	if err != nil {
 		t.Fatalf("unresolved link must not error: %v", err)
 	}
@@ -112,14 +112,14 @@ func TestUnresolvedLinkIsWarningNotError(t *testing.T) {
 
 func TestEditRequiresAChange(t *testing.T) {
 	m, _ := newManager(t, nil)
-	r, _ := m.Add(AddParams{Kind: "decision", Title: "x"})
+	r, _ := m.Add(AddParams{Kind: "adr", Title: "x"})
 	_, err := m.Edit(r.ID, EditParams{})
 	assertCode(t, err, contract.CodeUsage)
 }
 
 func TestEditUpdatesTitleAndTags(t *testing.T) {
 	m, _ := newManager(t, nil)
-	r, _ := m.Add(AddParams{Kind: "decision", Title: "old", Tags: []string{"a"}})
+	r, _ := m.Add(AddParams{Kind: "adr", Title: "old", Tags: []string{"a"}})
 	newTitle := "new"
 	updated, err := m.Edit(r.ID, EditParams{Title: &newTitle, AddTags: []string{"b"}, RemoveTags: []string{"a"}})
 	if err != nil {
@@ -135,36 +135,24 @@ func TestEditUpdatesTitleAndTags(t *testing.T) {
 
 func TestListFilterAndCounts(t *testing.T) {
 	m, _ := newManager(t, nil)
-	m.Add(AddParams{Kind: "decision", Title: "d1"})
-	m.Add(AddParams{Kind: "decision", Title: "d2"})
-	m.Add(AddParams{Kind: "failure", Title: "f1"})
+	m.Add(AddParams{Kind: "adr", Title: "d1"})
+	m.Add(AddParams{Kind: "adr", Title: "d2"})
+	m.Add(AddParams{Kind: "documentation", Title: "f1"})
 
 	all, _ := m.List("", "")
-	if all.Total != 3 || all.Counts["decision"] != 2 || all.Counts["failure"] != 1 {
+	if all.Total != 3 || all.Counts["adr"] != 2 || all.Counts["documentation"] != 1 {
 		t.Errorf("counts = %+v", all.Counts)
 	}
-	onlyFail, _ := m.List("failure", "")
+	onlyFail, _ := m.List("documentation", "")
 	if onlyFail.Total != 1 {
 		t.Errorf("failure filter total = %d", onlyFail.Total)
-	}
-}
-
-func TestSearchFindsByBody(t *testing.T) {
-	m, _ := newManager(t, nil)
-	m.Add(AddParams{Kind: "decision", Title: "Use WAL", Body: "sqlite journal mode rationale"})
-	res, err := m.Search("journal", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Total != 1 || res.Memories[0].Title != "Use WAL" {
-		t.Errorf("search = %+v", res)
 	}
 }
 
 func TestValidateDetectsDriftAndBroken(t *testing.T) {
 	m, work := newManager(t, map[string]string{"a.go": "package a\n\nfunc F() {}\n"})
 	// evidence on a real file (ok), and on a missing file (broken).
-	_, err := m.Add(AddParams{Kind: "decision", Title: "x",
+	_, err := m.Add(AddParams{Kind: "adr", Title: "x",
 		Evidence: []EvidenceSpec{{Path: "a.go", Start: 1, End: 1}, {Path: "ghost.go", Start: 1, End: 2}}})
 	if err != nil {
 		t.Fatal(err)

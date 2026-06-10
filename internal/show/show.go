@@ -76,7 +76,6 @@ func (s *Shower) Symbol(name, in string, contextLines, maxLines int) (SymbolResu
 		s.logErr("TestsOf", err)
 		b.Tests = tests
 		b.Memories = s.memoryRefs("symbol", r.Name)
-		b.Work = s.workRefsTo("symbol", r.Name)
 		blocks = append(blocks, b)
 	}
 	return SymbolResult{Query: name, In: in, Total: total, Capped: capped, Blocks: blocks}, nil
@@ -126,7 +125,6 @@ func (s *Shower) File(path string, contextLines int) (FileResult, error) {
 		Outline: outline,
 		Imports: imports, ImportedBy: importedBy, Tests: tests,
 		Memories: s.memoryRefs("file", file.Path),
-		Work:     s.workRefsTo("file", file.Path),
 	}, nil
 }
 
@@ -143,9 +141,7 @@ func (s *Shower) Memory(id string) (MemoryResult, error) {
 	if !ok {
 		return MemoryResult{}, notFound("memory", id, nil)
 	}
-	res := memoryResultFrom(full)
-	res.Work = s.workRefsTo("memory", memID(full.ID))
-	return res, nil
+	return memoryResultFrom(full), nil
 }
 
 // ParseMemoryID parses a mem_NNN identifier into its numeric id.

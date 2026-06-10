@@ -9,8 +9,9 @@ import (
 )
 
 // SchemaVersion is the version of the --json output contract. Bump on any
-// breaking change to the machine-facing payload shape.
-const SchemaVersion = 1
+// breaking change to the machine-facing payload shape. v2: search returns
+// code hits plus a separate full-body memories section.
+const SchemaVersion = 2
 
 // ExitCode is a process exit status. The plugin branches on these.
 type ExitCode int
@@ -46,8 +47,7 @@ const (
 	CodeNotFound          Code = "NOT_FOUND"
 	CodeStoreError        Code = "STORE_ERROR"
 	CodeDependencyMissing Code = "DEPENDENCY_MISSING"
-	// CodeRuntimeMissing means a required runtime could not be loaded. Kept for
-	// compatibility with older clients and error envelopes.
+	// CodeRuntimeMissing means a required runtime could not be loaded.
 	CodeRuntimeMissing Code = "RUNTIME_MISSING"
 	// CodeEmbedFailure means an embedding session run or text encode failed.
 	CodeEmbedFailure Code = "EMBED_FAILURE"

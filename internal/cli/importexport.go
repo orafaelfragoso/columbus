@@ -23,7 +23,7 @@ type exportConfirm struct {
 
 func (exportConfirm) CommandName() string { return "export" }
 func (c exportConfirm) RenderText(w io.Writer, _ render.Options) error {
-	_, err := io.WriteString(w, "exported "+strconv.Itoa(c.Count)+" knowledge entities to "+c.Out+"\n")
+	_, err := io.WriteString(w, "exported "+strconv.Itoa(c.Count)+" memories to "+c.Out+"\n")
 	return err
 }
 func (c exportConfirm) RenderLLM(w io.Writer, o render.Options) error { return c.RenderText(w, o) }
@@ -32,8 +32,8 @@ func newExportCmd(env *Env) *cobra.Command {
 	var out string
 	cmd := &cobra.Command{
 		Use:   "export",
-		Short: "Export all project knowledge (memories, epics, stories, tasks, tags, refs) as JSON",
-		Long: "Export the full durable-knowledge layer as a portable JSON document " +
+		Short: "Export all project memories (with tags, links, evidence) as JSON",
+		Long: "Export the durable memory layer as a portable JSON document " +
 			"(stdout by default). Vectors are not exported; reindex rebuilds them.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -62,8 +62,7 @@ func newExportCmd(env *Env) *cobra.Command {
 			if err := os.WriteFile(out, buf.Bytes(), 0o644); err != nil {
 				return &contract.Error{Code: contract.CodeStoreError, Message: err.Error()}
 			}
-			count := len(doc.Memories) + len(doc.Epics) + len(doc.Stories) + len(doc.Tasks)
-			return renderResult(env, exportConfirm{Out: out, Count: count})
+			return renderResult(env, exportConfirm{Out: out, Count: len(doc.Memories)})
 		},
 	}
 	cmd.Flags().StringVar(&out, "out", "", "write to a file instead of stdout")

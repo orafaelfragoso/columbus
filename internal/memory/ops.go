@@ -180,42 +180,6 @@ func (m *Manager) Edit(idStr string, p EditParams) (MemoryResult, error) {
 	return m.load(id, warnings)
 }
 
-// Link adds links to an existing memory.
-func (m *Manager) Link(idStr string, links []LinkSpec) (MemoryResult, error) {
-	id, err := ParseID(idStr)
-	if err != nil {
-		return MemoryResult{}, err
-	}
-	if len(links) == 0 {
-		return MemoryResult{}, contract.Errorf(contract.CodeUsage, "link requires at least one --link")
-	}
-	if ok, err := m.DB.MemoryExists(id); err != nil {
-		return MemoryResult{}, err
-	} else if !ok {
-		return MemoryResult{}, notFound(idStr)
-	}
-	// Resolve link warnings before the transaction: DB reads cannot run inside
-	// WithTx (the writer holds the single connection).
-	var warnings []string
-	for _, l := range links {
-		if w := m.resolveLinkWarning(l); w != "" {
-			warnings = append(warnings, w)
-		}
-	}
-	err = m.DB.WithTx(func(tx *store.Tx) error {
-		for _, l := range links {
-			if err := tx.AddLink(id, l.Type, l.Ref); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return MemoryResult{}, err
-	}
-	return m.load(id, warnings)
-}
-
 // Remove hard-deletes a memory (no interactive prompt; agent-friendly).
 func (m *Manager) Remove(idStr string) (RemoveResult, error) {
 	id, err := ParseID(idStr)
@@ -251,56 +215,6 @@ func (m *Manager) List(kind, tag string) (ListResult, error) {
 	}
 	res.Total = len(res.Memories)
 	return res, nil
-}
-
-// Search runs a pure FTS5 query over memory title/body/tags.
-func (m *Manager) Search(query string, limit int) (ListResult, error) {
-	if strings.TrimSpace(query) == "" {
-		return ListResult{}, contract.Errorf(contract.CodeUsage, "memory search requires a query")
-	}
-	if limit <= 0 {
-		limit = 20
-	}
-	match := ftsMatch(query)
-	ids, err := m.DB.SearchMemoryFTS(match, limit)
-	if err != nil {
-		return ListResult{}, err
-	}
-	res := ListResult{Counts: map[string]int{}}
-	for _, id := range ids {
-		b, ok, err := m.DB.MemoryBriefByID(id)
-		if err != nil {
-			return ListResult{}, err
-		}
-		if !ok {
-			continue
-		}
-		res.Memories = append(res.Memories, MemoryRef{ID: FormatID(b.ID), Kind: b.Kind, Title: b.Title, Tags: b.Tags})
-		res.Counts[b.Kind]++
-	}
-	res.Total = len(res.Memories)
-	return res, nil
-}
-
-// ftsMatch builds a permissive prefix-OR MATCH expression from a query.
-func ftsMatch(query string) string {
-	var parts []string
-	var cur strings.Builder
-	flush := func() {
-		if cur.Len() > 0 {
-			parts = append(parts, `"`+strings.ToLower(cur.String())+`"*`)
-			cur.Reset()
-		}
-	}
-	for _, r := range query {
-		if r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-			cur.WriteRune(r)
-		} else {
-			flush()
-		}
-	}
-	flush()
-	return strings.Join(parts, " OR ")
 }
 
 // load reads a memory back into a typed result.

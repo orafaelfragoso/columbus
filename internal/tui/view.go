@@ -9,7 +9,6 @@ import (
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // layout holds the computed rectangle sizes for the current window.
@@ -94,7 +93,7 @@ func box(title, body string, innerW int) string {
 
 func (m Model) searchBox() string {
 	d := m.dims()
-	body := st(cMuted, false).Render("Semantic search across code, memory and work") + "\n\n" +
+	body := st(cMuted, false).Render("Semantic search across code and memory") + "\n\n" +
 		m.searchInput.View() + "\n\n" +
 		st(cMuted, false).Render("enter search · esc cancel")
 	return box("Search", body, d.detailW)
@@ -119,7 +118,7 @@ func (m Model) quitBox() string {
 
 func (m Model) headerView() string {
 	s := m.snap
-	left := st(cViolet, true).Render("✦ Columbus") + "  " + m.headerTabsView()
+	left := st(cViolet, true).Render("✦ Columbus")
 
 	var status string
 	switch {
@@ -158,55 +157,24 @@ func (m Model) headerView() string {
 	return spread(m.w, left, right) + "\n" + st(cBorder, false).Render(strings.Repeat("─", m.w))
 }
 
-func (m Model) headerTabsView() string {
-	tabs := []struct {
-		tab   viewTab
-		label string
-	}{
-		{tabMain, "MAIN"},
-		{tabWork, "WORK"},
-	}
-	parts := make([]string, 0, len(tabs))
-	for _, t := range tabs {
-		style := lipgloss.NewStyle().Padding(0, 1).Foreground(cMuted)
-		if m.activeTab == t.tab {
-			style = style.Foreground(cTrack).Background(cViolet).Bold(true)
-		}
-		parts = append(parts, style.Render(t.label))
-	}
-	return strings.Join(parts, " ")
-}
-
 func (m Model) cardsView() string {
 	s := m.snap
-	const n = 7
+	const n = 4
 	wds := splitEven(max(n, m.w-(n-1)*hGap), n)
 	cards := []string{
 		card(wds[0], cBlue, "FILES INDEXED", comma(s.Files), "tree-sitter parsed"),
 		card(wds[1], cGreen, "SYMBOLS", comma(s.Symbols), "defs + refs"),
 		card(wds[2], cPink, "EMBEDDINGS", comma(s.Embeddings), "semantic vectors"),
 		card(wds[3], cViolet, "MEMORIES", comma(s.Memories), memSub(s.MemCounts)),
-		card(wds[4], cCyan, "EPICS", comma(len(s.Epics)), fmt.Sprintf("%d active", s.EpicsActive())),
-		card(wds[5], cYellow, "STORIES", comma(len(s.Stories)), fmt.Sprintf("%d open", s.StoriesOpen())),
-		card(wds[6], cPink, "TASKS", comma(len(s.Tasks)), fmt.Sprintf("%d open", s.TasksOpen())),
 	}
 	return joinH(cards...)
 }
 
 func (m Model) bodyView() string {
-	switch m.activeTab {
-	case tabWork:
-		return m.workView()
-	default:
-		return m.mainView()
-	}
-}
-
-func (m Model) mainView() string {
 	d := m.dims()
 	body := m.memoryTableView(d.memW-4, max(1, d.bodyH-5))
 	return panel(d.memW, d.bodyH, "MEMORY",
-		fmt.Sprintf("%d entries", m.snap.Memories), body, m.activeTab == tabMain)
+		fmt.Sprintf("%d entries", m.snap.Memories), body, true)
 }
 
 func (m Model) memoryTableView(innerW, rows int) string {
@@ -259,14 +227,6 @@ func (m Model) memoryTableView(innerW, rows int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) workView() string {
-	d := m.dims()
-	items := m.workItems()
-	body := m.kanbanView(d.memW-4, max(1, d.bodyH-5), items)
-	return panel(d.memW, d.bodyH, "WORK — "+strings.ToUpper(workKindLabel(m.workKind)),
-		fmt.Sprintf("%d items · ←/→ columns · [/ ] type", len(items)), body, m.activeTab == tabWork)
-}
-
 func (m Model) footerView() string {
 	var km help.KeyMap = m.keys
 	switch {
@@ -278,116 +238,22 @@ func (m Model) footerView() string {
 		km = staticHelp{resultsHelpKeys()}
 	case m.showDetail:
 		km = staticHelp{detailHelpKeys()}
-	case m.activeTab == tabMain:
-		km = staticHelp{mainHelpKeys(m.keys)}
-	case m.activeTab == tabWork:
-		km = staticHelp{workHelpKeys(m.keys)}
 	}
 	return lipgloss.NewStyle().Padding(0, 1).Render(m.help.View(km))
 }
 
-func (m Model) kanbanView(innerW, rows int, items []workItem) string {
-	statuses := kanbanStatuses()
-	if innerW < 1 {
-		innerW = 1
-	}
-	avail := innerW - hGap*(len(statuses)-1)
-	if avail < len(statuses) {
-		avail = len(statuses)
-	}
-	widths := splitEven(avail, len(statuses))
-	selected, _ := m.selectedWorkItem()
-	cols := make([]string, 0, len(statuses))
-	for i, status := range statuses {
-		cols = append(cols, kanbanColumn(widths[i], rows, status, items, selected))
-	}
-	return joinH(cols...)
-}
-
-func kanbanStatuses() []string {
-	return []string{"todo", "in_progress", "blocked", "done", "cancelled"}
-}
-
-func kanbanColumn(w, rows int, status string, items []workItem, selected workItem) string {
-	if w < 4 {
-		w = 4
-	}
-	lines := []string{
-		cell(statusLabel(status), w, statusColor(status)),
-		st(cBorder, false).Render(strings.Repeat("─", w)),
-	}
-	matches := 0
-	for _, item := range items {
-		if item.Status != status {
-			continue
-		}
-		matches++
-		if len(lines) > 2 {
-			lines = append(lines, strings.Repeat(" ", w))
-		}
-		lines = append(lines, kanbanCardLines(w, item, sameWorkItem(item, selected))...)
-	}
-	if matches == 0 {
-		lines = append(lines, cell("no items", w, cMuted))
-	}
-	if len(lines) > rows {
-		lines = lines[:rows]
-	}
-	for len(lines) < rows {
-		lines = append(lines, strings.Repeat(" ", w))
-	}
-	for i, line := range lines {
-		if lipgloss.Width(line) > w {
-			lines[i] = ansi.Truncate(line, w, "")
-		} else {
-			lines[i] = padR(line, w)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-func kanbanCardLines(w int, item workItem, selected bool) []string {
-	wrapped := wrapText(item.Title, w)
-	lines := make([]string, 0, len(wrapped))
-	for _, line := range wrapped {
-		lines = append(lines, padR(line, w))
-	}
-	if !selected {
-		return lines
-	}
-	for i, line := range lines {
-		lines[i] = selectionStyle().Render(padR(line, w))
-	}
-	return lines
-}
-
-func sameWorkItem(a, b workItem) bool {
-	return a.Kind == b.Kind && a.ID == b.ID && a.ID != 0
-}
-
-func workKindLabel(k workKind) string {
-	switch k {
-	case workStories:
-		return "stories"
-	case workTasks:
-		return "tasks"
-	default:
-		return "epics"
-	}
-}
-
 func memSub(counts map[string]int) string {
 	if len(counts) == 0 {
-		return "durable knowledge"
+		return "durable memory"
 	}
 	parts := make([]string, 0, len(counts))
-	for _, k := range []string{"decision", "pattern", "failure", "command", "glossary", "backlog"} {
+	for _, k := range []string{"adr", "plan", "documentation"} {
 		if n := counts[k]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, k))
 		}
 	}
 	if len(parts) == 0 {
-		return "durable knowledge"
+		return "durable memory"
 	}
 	return strings.Join(parts, " · ")
 }
@@ -451,73 +317,13 @@ func memTableRows(mems []MemRow, inner int) []table.Row {
 
 func memMarkdown(mr MemRow) string {
 	return fmt.Sprintf("# %s\n\n**Kind:** %s  ·  **ID:** `%s`\n",
-		mr.Title, statusLabel(mr.Kind), mr.ID)
-}
-
-func epicMarkdown(e EpicRow, s Snapshot) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n\n", e.Title)
-	fmt.Fprintf(&b, "- **ID:** `%s`\n- **Status:** %s\n- **Progress:** %d / %d tasks done\n\n",
-		e.IDStr, statusLabel(e.Status), e.Done, e.Total)
-	tasks := s.TasksForEpic(e.ID)
-	if len(tasks) > 0 {
-		b.WriteString("## Tasks\n\n")
-		for _, t := range tasks {
-			fmt.Fprintf(&b, "- `%s` %s — _%s_\n", t.IDStr, t.Title, statusLabel(t.Status))
-		}
-	}
-	return b.String()
-}
-
-func storyMarkdown(st StoryRow, s Snapshot) string {
-	epic := "—"
-	for _, e := range s.Epics {
-		if e.ID == st.EpicID {
-			epic = e.IDStr + " · " + e.Title
-		}
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n\n", st.Title)
-	fmt.Fprintf(&b, "- **ID:** `%s`\n- **Status:** %s\n- **Epic:** %s\n",
-		st.IDStr, statusLabel(st.Status), epic)
-	tasks := s.TasksForStory(st.ID)
-	if len(tasks) > 0 {
-		b.WriteString("\n## Tasks\n\n")
-		for _, t := range tasks {
-			fmt.Fprintf(&b, "- `%s` %s — _%s_\n", t.IDStr, t.Title, statusLabel(t.Status))
-		}
-	}
-	return b.String()
-}
-
-func taskMarkdown(t TaskRow, s Snapshot) string {
-	epic := "—"
-	for _, e := range s.Epics {
-		if e.ID == t.EpicID {
-			epic = e.IDStr + " · " + e.Title
-		}
-	}
-	story := "—"
-	for _, st := range s.Stories {
-		if st.ID == t.StoryID {
-			story = st.IDStr + " · " + st.Title
-		}
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n\n", t.Title)
-	fmt.Fprintf(&b, "- **ID:** `%s`\n- **Status:** %s\n- **Story:** %s\n- **Epic:** %s\n",
-		t.IDStr, statusLabel(t.Status), story, epic)
-	return b.String()
+		mr.Title, kindLabel(mr.Kind), mr.ID)
 }
 
 func grainColor(grain string) color.Color {
 	switch grain {
 	case "memory":
 		return cViolet
-	case "epic":
-		return cCyan
-	case "task":
-		return cYellow
 	case "symbol":
 		return cBlue
 	case "file":

@@ -60,9 +60,6 @@ func TestWhyTemplates(t *testing.T) {
 }
 
 func TestRiskLevels(t *testing.T) {
-	if r := riskLevel(signals{hasFailureMemory: true}); r != "high" {
-		t.Errorf("failure memory risk = %q, want high", r)
-	}
 	if r := riskLevel(signals{importedByCount: 9}); r != "medium" {
 		t.Errorf("central risk = %q, want medium", r)
 	}

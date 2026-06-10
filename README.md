@@ -41,8 +41,8 @@ Columbus does exactly three things:
    symbol/file on-device (metadata + git anchors + vectors, never your code).
 2. **Search** — natural-language semantic search: vector retrieval re-ranked by
    deterministic heuristics, returning ranked context with exact line ranges.
-3. **Memory** — own the project's durable record: decisions, plus structured
-   epics → stories → tasks with history, references, and drift checks.
+3. **Memory** — own the project's durable record: ADRs, plans and
+   documentation with tags, links, evidence anchors, and drift checks.
 
 Embeddings run **on-device** with bundled Model2Vec assets
 (`minishlab/potion-code-16M`); there are no LLM calls and nothing leaves your
@@ -58,7 +58,7 @@ bleed tokens and go wrong. Columbus takes that off its plate.
 | Greps for the exact word and misses the concept | **Natural-language** semantic search finds it by meaning |
 | Reads whole files to find ten relevant lines | One call returns ranked context with **exact line ranges** |
 | Context drifts; stale `.md` files confidently lie | Snippets rebuilt **live** from the working tree — never stale |
-| Re-discovers the codebase every session | **Durable memory** — decisions, epics, stories & tasks persist |
+| Re-discovers the codebase every session | **Durable memory** — ADRs, plans & documentation persist |
 | Repo cluttered with `.cursorrules` / scattered context files | Memory is queryable and **git-excluded**, not committed noise |
 | Embeddings shipped to a cloud, per-query cost | **On-device** embeddings, zero LLM calls, nothing leaves your machine |
 
@@ -101,7 +101,7 @@ weights.
 columbus install                 # onboard: write .columbus.json, create db, first index + embed
 columbus search "parse config"   # ranked, LLM-ready context with exact line ranges
 columbus reindex                 # re-chunk + re-embed only what changed
-columbus view                    # full-screen dashboard (main memory view + work Kanban)
+columbus view                    # full-screen dashboard (index stats + memory table)
 columbus doctor                  # verify git, vec0, model runtime + index health
 ```
 
@@ -190,7 +190,7 @@ columbus purge                      # clear all records + reset config to defaul
 
 ```sh
 columbus search "where do we parse config"    # natural-language, ranked, LLM-ready results
-columbus search "auth token check" --kind all # code + memory + epics/stories/tasks
+columbus search "auth token check" --kind all # code hits + full-body memory section in one call
 columbus show symbol Engine --in internal/search
 columbus show file internal/store/store.go
 columbus graphs --json                        # whole dependency graph as {nodes, edges}
@@ -201,61 +201,57 @@ Search is semantic: the query is embedded on-device and matched by vector
 similarity, then re-ranked by deterministic heuristics. With no runtime library
 present it degrades to keyword (FTS) ranking — `columbus doctor` shows which.
 
+One search is the **master query**: alongside the ranked code hits it returns a
+MEMORIES section with the **full bodies** (plus tags, links, and evidence) of
+the most relevant memories, and 1-hop graph edges (imports / imported-by /
+tests) per code hit — so an agent gets complete context in a single call, no
+follow-up `show memory` needed.
+
 ### Memory (durable knowledge)
 
-One surface over every durable-knowledge kind —
-`epic`, `story`, `task`, `context` (free-form decisions/patterns/…), and `tag`
-(read-only). All of it is embedded and shows up in semantic `search`.
+Three kinds — `adr` (architecture decision), `plan` (durable implementation
+plan), and `documentation` (everything else worth remembering). All of it is
+embedded and surfaces in semantic `search` with full bodies.
 
 ```sh
-columbus memory add context --type decision --title "Use WAL" --body "readers never block writers" \
-  --evidence internal/store/store.go:30-40 --ref symbol:Open --tag db
-columbus memory add epic  --title "Ship search" --tag infra
-columbus memory add story --parent epic_001 --title "Indexing"
-columbus memory add task  --parent story_001 --title "Index FTS"
-columbus memory update task task_001 --status in_progress --comment "started"
-columbus memory update epic epic_001 --add-ref file:internal/search/search.go
-columbus memory list epic --status in_progress
-columbus memory list task --parent story_001
-columbus memory list tag                        # distinct tags + counts
-columbus memory remove epic epic_001 --force    # destructive; cascades stories+tasks; id retired
+columbus memory add adr --title "Use WAL" --body "readers never block writers" \
+  --evidence internal/store/store.go:30-40 --link symbol:Open --tag db
+columbus memory add plan --title "Ship master search" --body "one query = full context"
+columbus memory add documentation --title "Release process" --body "goreleaser + zig"
+columbus memory update mem_001 --title "Use WAL mode" --add-tag sqlite
+columbus memory list --kind adr --tag db
+columbus memory remove mem_001                  # destructive; id retired
 ```
 
-The work hierarchy is **epic → story → task**: a passive, durable record (status,
-append-only history, comments, references). Columbus *stores and retrieves* — it
-never drives, gates, or enforces transitions. `status` is a recorded field from a
-fixed vocabulary: `todo`, `in_progress`, `blocked`, `done`, `cancelled` (any →
-any). References are drift-checked against indexed
-`file`/`dir`/`memory`/`symbol` targets; `show file|symbol|memory` lists in
-reverse the work that references that entity ("what touches this?").
+Memories are a passive, durable record. Links and evidence anchors are
+drift-checked against the indexed `file`/`symbol` targets; `show
+file|symbol` lists in reverse the memories that reference that entity.
 
 ```sh
-columbus show epic epic_001          # fields, refs (inline drift), history, child stories/tasks
-columbus show task task_001
-columbus search "search" --kind epic # work items are searchable (also in --kind all)
+columbus show memory mem_001          # full body, tags, links, evidence
+columbus search "WAL" --kind memory   # memory-only search (full bodies)
+columbus memory validate              # evidence drift + link resolution report
 ```
 
 ### Import / export
 
 ```sh
-columbus export --out knowledge.json   # full knowledge doc: memories + epics + stories + tasks
-columbus import knowledge.json         # vectors are not exported — reindex rebuilds them
+columbus export --out memories.json    # portable memory doc (schema v4)
+columbus import memories.json          # vectors are not exported — reindex rebuilds them
 ```
 
 ### Dashboard
 
 `columbus view` opens a full-screen, read-mostly terminal dashboard over the
-indexed project. The Main tab shows index freshness, file/symbol/embedding
-counts, memory counts, epic/story/task counts, and a full-width memory table. The
-Work tab is a Kanban board for epics, stories, and tasks, grouped by status. It
-auto-refreshes, so external `columbus reindex`/agent edits appear on their own.
+indexed project: index freshness, file/symbol/embedding counts, memory counts,
+and a full-width memory table. It auto-refreshes, so external `columbus
+reindex`/agent edits appear on their own.
 
-Keys: `tab` switch Main/Work · `←/→` cycle epics/stories/tasks in Work · `↑/↓`
-(or `j/k`) navigate · `enter` detail (full body, refs, history) · `/` semantic
-search across code, memory and work (ranked results, snippets in detail) ·
-`esc` back · `r` refresh · `R` reindex (in-process) · `?` help · `q` quit
-confirmation. It is a projection of the same data the JSON/LLM commands expose;
-only `R` writes (it runs the indexer) — work/memory are read-only.
+Keys: `↑/↓` (or `j/k`) navigate · `enter` detail (full body, tags, links) ·
+`/` semantic search across code and memory (ranked results, snippets in
+detail) · `esc` back · `r` refresh · `R` reindex (in-process) · `?` help ·
+`q` quit confirmation. It is a projection of the same data the JSON/LLM
+commands expose; only `R` writes (it runs the indexer) — memory is read-only.
 
 ## Output modes
 

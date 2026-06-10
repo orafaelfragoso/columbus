@@ -18,15 +18,14 @@ const (
 // signals carries every ranking input for one candidate. Candidate generators
 // (FTS/rg) never contribute their internal scores; only these signals do.
 type signals struct {
-	name             string
-	signature        string
-	path             string
-	role             string
-	importedByCount  int
-	hasTests         bool
-	hasMemory        bool
-	hasFailureMemory bool
-	contentDensity   float64 // [0,1], from the live path
+	name            string
+	signature       string
+	path            string
+	role            string
+	importedByCount int
+	hasTests        bool
+	hasMemory       bool
+	contentDensity  float64 // [0,1], from the live path
 }
 
 // feature is one named, weighted contribution to the score.
@@ -103,14 +102,10 @@ func why(tokens []string, s signals) string {
 
 // riskLevel is a crude, documented heuristic hint (not a guarantee).
 func riskLevel(s signals) string {
-	switch {
-	case s.hasFailureMemory:
-		return "high"
-	case s.importedByCount >= 5:
+	if s.importedByCount >= 5 {
 		return "medium"
-	default:
-		return "low"
 	}
+	return "low"
 }
 
 // nameMatch scores how well any query token matches the name: exact 1.0, prefix

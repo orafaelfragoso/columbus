@@ -66,6 +66,7 @@ func newSearchCmd(env *Env) *cobra.Command {
 				Kind:         kind,
 				Limit:        env.Limit,
 				ContextLines: contextLines,
+				Graph:        true,
 				Snippets:     snippets,
 				SnippetLines: snippetLines,
 			})
@@ -79,7 +80,7 @@ func newSearchCmd(env *Env) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&kindFlag, "kind", "all", "what to search: code|memory|epic|task|all")
+	f.StringVar(&kindFlag, "kind", "all", "what to search: code|memory|all")
 	f.IntVar(&contextLines, "context-lines", 3, "lines of context around matched ranges")
 	f.BoolVar(&snippets, "snippets", false, "attach code bodies (default: locations, signatures and scores only)")
 	f.IntVar(&snippetLines, "snippet-lines", 0, "cap snippet length in lines when --snippets is set (0 = default 60)")

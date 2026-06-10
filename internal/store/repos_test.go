@@ -199,7 +199,7 @@ func TestMemoryRepoRoundTrip(t *testing.T) {
 		if id, e = tx.NextMemSeq(); e != nil {
 			return e
 		}
-		if e = tx.InsertMemory(id, "decision", "use WAL", "we chose WAL mode", "t0", "t0"); e != nil {
+		if e = tx.InsertMemory(id, "adr", "use WAL", "we chose WAL mode", "t0", "t0"); e != nil {
 			return e
 		}
 		if e = tx.AddTag(id, "storage"); e != nil {
@@ -226,11 +226,11 @@ func TestMemoryRepoRoundTrip(t *testing.T) {
 	}
 
 	brief, ok, err := db.MemoryBriefByID(id)
-	if err != nil || !ok || brief.Kind != "decision" {
+	if err != nil || !ok || brief.Kind != "adr" {
 		t.Fatalf("MemoryBriefByID = %+v ok=%v err=%v", brief, ok, err)
 	}
 
-	list, err := db.ListMemories("decision", "storage")
+	list, err := db.ListMemories("adr", "storage")
 	if err != nil || len(list) != 1 {
 		t.Fatalf("ListMemories = %v, %v", list, err)
 	}
@@ -251,7 +251,7 @@ func TestMemoryRepoRoundTrip(t *testing.T) {
 	}
 
 	if err := db.WithTx(func(tx *Tx) error {
-		if e := tx.UpdateMemory(id, "decision", "use WAL mode", "updated body", "t1"); e != nil {
+		if e := tx.UpdateMemory(id, "adr", "use WAL mode", "updated body", "t1"); e != nil {
 			return e
 		}
 		if e := tx.RemoveTag(id, "storage"); e != nil {

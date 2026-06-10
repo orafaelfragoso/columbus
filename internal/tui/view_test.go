@@ -31,8 +31,8 @@ func TestMemColumnsDropsTagsWhenNarrow(t *testing.T) {
 
 func TestMemTableRowsRendersAndTruncatesTags(t *testing.T) {
 	mems := []MemRow{
-		{ID: "mem_001", Kind: "decision", Title: "use WAL", Tags: []string{"db", "storage"}},
-		{ID: "mem_002", Kind: "failure", Title: "race", Tags: []string{"averyverylongtagname", "second", "third"}},
+		{ID: "mem_001", Kind: "adr", Title: "use WAL", Tags: []string{"db", "storage"}},
+		{ID: "mem_002", Kind: "plan", Title: "race", Tags: []string{"averyverylongtagname", "second", "third"}},
 	}
 
 	wide := memTableRows(mems, memTagsMinInner)

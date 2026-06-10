@@ -229,78 +229,47 @@ func (ix *Indexer) embed(mode Mode, outcomes []outcome, caps map[string]fileCapt
 		}
 	}
 
-	// 7. Embed the durable-knowledge layer (epics, stories, tasks, memories) so
-	//    the whole work hierarchy is semantically searchable.
-	if err := ix.embedWorkItems(model, res); err != nil {
+	// 7. Embed memories so the durable record is semantically searchable.
+	if err := ix.embedMemories(model, res); err != nil {
 		return err
 	}
 
 	return ix.DB.Meta().SetEmbedInfo(model, dim)
 }
 
-// workOwner pairs a polymorphic owner type with an id-list accessor and a
-// per-id text builder, so embedWorkItems can treat every durable entity
-// uniformly.
-type workOwner struct {
-	ownerType string
-	ids       func() ([]int64, error)
-	text      func(id int64) (string, bool, error)
-}
-
-// embedWorkItems re-embeds the durable-knowledge entities whose text changed
-// (content_sha gate) under the current model. Deletions are handled at delete
-// time (store drops the owner's vector), so this only adds/updates.
-func (ix *Indexer) embedWorkItems(model string, res *IndexResult) error {
-	owners := []workOwner{
-		{"epic", ix.DB.AllEpicIDs, func(id int64) (string, bool, error) {
-			e, ok, err := ix.DB.EpicFull(id)
-			return workText(e.Title, e.Body, e.Tags), ok, err
-		}},
-		{"story", ix.DB.AllStoryIDs, func(id int64) (string, bool, error) {
-			s, ok, err := ix.DB.StoryFull(id)
-			return workText(s.Title, s.Body, s.Tags), ok, err
-		}},
-		{"task", ix.DB.AllTaskIDs, func(id int64) (string, bool, error) {
-			t, ok, err := ix.DB.TaskFull(id)
-			return workText(t.Title, t.Body, t.Tags), ok, err
-		}},
-		{"memory", ix.DB.AllMemoryIDs, func(id int64) (string, bool, error) {
-			m, ok, err := ix.DB.MemoryFull(id)
-			return workText(m.Title, m.Body, m.Tags), ok, err
-		}},
-	}
-
+// embedMemories re-embeds the memories whose text changed (content_sha gate)
+// under the current model. Deletions are handled at delete time (store drops
+// the owner's vector), so this only adds/updates.
+func (ix *Indexer) embedMemories(model string, res *IndexResult) error {
 	type job struct {
-		ownerType string
-		id        int64
-		sha       string
-		text      string
+		id   int64
+		sha  string
+		text string
+	}
+	ids, err := ix.DB.AllMemoryIDs()
+	if err != nil {
+		return err
 	}
 	var jobs []job
-	for _, o := range owners {
-		ids, err := o.ids()
+	for _, id := range ids {
+		m, ok, err := ix.DB.MemoryFull(id)
 		if err != nil {
 			return err
 		}
-		for _, id := range ids {
-			text, ok, err := o.text(id)
-			if err != nil {
-				return err
-			}
-			if !ok || strings.TrimSpace(text) == "" {
-				continue
-			}
-			sha := chunkSHA(model, text)
-			prev, exists, err := ix.DB.ChunkSHA(o.ownerType, id, model)
-			if err != nil {
-				return err
-			}
-			if exists && prev == sha {
-				res.EmbedSkipped++
-				continue
-			}
-			jobs = append(jobs, job{o.ownerType, id, sha, text})
+		text := memoryText(m.Title, m.Body, m.Tags)
+		if !ok || strings.TrimSpace(text) == "" {
+			continue
 		}
+		sha := chunkSHA(model, text)
+		prev, exists, err := ix.DB.ChunkSHA("memory", id, model)
+		if err != nil {
+			return err
+		}
+		if exists && prev == sha {
+			res.EmbedSkipped++
+			continue
+		}
+		jobs = append(jobs, job{id, sha, text})
 	}
 	if len(jobs) == 0 {
 		return nil
@@ -315,7 +284,7 @@ func (ix *Indexer) embedWorkItems(model string, res *IndexResult) error {
 		return embedErr(err)
 	}
 	for i, j := range jobs {
-		if err := ix.DB.UpsertVector(j.ownerType, j.id, model, j.sha, vecs[i]); err != nil {
+		if err := ix.DB.UpsertVector("memory", j.id, model, j.sha, vecs[i]); err != nil {
 			return err
 		}
 		res.Embedded++
@@ -323,10 +292,8 @@ func (ix *Indexer) embedWorkItems(model string, res *IndexResult) error {
 	return nil
 }
 
-// workText is the embed text for a durable-knowledge entity: title, body and
-// tags joined. Status is intentionally excluded so a status change alone does
-// not force re-embedding.
-func workText(title, body string, tags []string) string {
+// memoryText is the embed text for a memory: title, body and tags joined.
+func memoryText(title, body string, tags []string) string {
 	parts := make([]string, 0, 3)
 	if title != "" {
 		parts = append(parts, title)

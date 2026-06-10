@@ -11,7 +11,7 @@ CREATE VIRTUAL TABLE vec_chunks USING vec0(
 
 CREATE TABLE chunk_meta (
     rowid       INTEGER PRIMARY KEY,   -- == vec_chunks rowid
-    owner_type  TEXT    NOT NULL,      -- symbol|file|memory|epic|story|task
+    owner_type  TEXT    NOT NULL,      -- symbol|file|memory
     owner_id    INTEGER NOT NULL,
     model       TEXT    NOT NULL,
     content_sha TEXT    NOT NULL,

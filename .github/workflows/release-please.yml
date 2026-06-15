@@ -16,7 +16,7 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         with:
           # PAT (not the default GITHUB_TOKEN) so the tag/release it creates
           # re-triggers release.yml. The default token deliberately does not
